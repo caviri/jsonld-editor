@@ -2,7 +2,7 @@
 
 Interactive browser-based visualisation and editor for [JSON-LD](https://json-ld.org/) linked-data graphs. Built with **Sigma.js**, **Graphology**, and **CodeMirror** — zero server required; runs entirely as a static site on GitHub Pages.
 
-![demo](json2md.gif)
+![JSON-LD Explorer demo](json-ld-explorer.gif)
 
 ---
 

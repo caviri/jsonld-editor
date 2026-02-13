@@ -90,7 +90,8 @@
 
         const fontSize = settings.labelSize || 12;
         const fontWeight = settings.labelWeight || "normal";
-        const fontColor = settings.labelColor.color || "#1e293b";
+        const styles = getComputedStyle(document.documentElement);
+        const fontColor = styles.getPropertyValue("--text-primary").trim() || "#1e293b";
         const nodeType = data.nodeType || "Unknown";
         const typeColor = data.color || "#64748b";
         const x = data.x;
@@ -144,7 +145,8 @@
         }
 
         const labelWidth = context.measureText(displayLabel).width;
-        context.fillStyle = "rgba(255, 255, 255, 0.85)";
+        const labelBg = styles.getPropertyValue("--label-bg").trim() || "rgba(255,255,255,0.85)";
+        context.fillStyle = labelBg;
         context.fillRect(x - labelWidth / 2 - 3, y + size + 3, labelWidth + 6, fontSize + 4);
         context.fillStyle = fontColor;
         context.fillText(displayLabel, x, y + size + 5);
@@ -161,7 +163,7 @@
             else if (validation.strict && validation.agent) context.fillStyle = "#22c55e";
             else context.fillStyle = "#ef4444";
             context.fill();
-            context.strokeStyle = "white";
+            context.strokeStyle = styles.getPropertyValue("--badge-stroke").trim() || "white";
             context.lineWidth = 1.5;
             context.stroke();
 
@@ -173,6 +175,61 @@
             else if (validation.strict && validation.agent) context.fillText("✓", bx, by);
             else context.fillText("✗", bx, by);
         }
+    }
+
+    // ── Custom hover renderer (theme-aware bg) ──
+    function drawHover(context, data, settings) {
+        const styles = getComputedStyle(document.documentElement);
+        const hoverBg = styles.getPropertyValue("--label-bg").trim() || "rgba(255,255,255,0.85)";
+        const fontColor = styles.getPropertyValue("--text-primary").trim() || "#1e293b";
+        const borderColor = data.color || "#64748b";
+
+        const fontSize = settings.labelSize + 2 || 14;
+        const label = data.label || "";
+        const nodeType = data.nodeType || "";
+        const x = data.x;
+        const y = data.y;
+        const size = data.size;
+
+        context.font = `bold ${fontSize}px ${settings.labelFont || "sans-serif"}`;
+        const labelWidth = context.measureText(label).width;
+        const typeWidth = context.measureText(nodeType).width;
+        const boxWidth = Math.max(labelWidth, typeWidth) + 20;
+        const boxHeight = fontSize * 2.8;
+        const boxX = x + size + 4;
+        const boxY = y - boxHeight / 2;
+        const r = 6;
+
+        // Rounded rect background
+        context.beginPath();
+        context.moveTo(boxX + r, boxY);
+        context.lineTo(boxX + boxWidth - r, boxY);
+        context.quadraticCurveTo(boxX + boxWidth, boxY, boxX + boxWidth, boxY + r);
+        context.lineTo(boxX + boxWidth, boxY + boxHeight - r);
+        context.quadraticCurveTo(boxX + boxWidth, boxY + boxHeight, boxX + boxWidth - r, boxY + boxHeight);
+        context.lineTo(boxX + r, boxY + boxHeight);
+        context.quadraticCurveTo(boxX, boxY + boxHeight, boxX, boxY + boxHeight - r);
+        context.lineTo(boxX, boxY + r);
+        context.quadraticCurveTo(boxX, boxY, boxX + r, boxY);
+        context.closePath();
+        context.fillStyle = hoverBg;
+        context.fill();
+        context.strokeStyle = borderColor;
+        context.lineWidth = 1.5;
+        context.stroke();
+
+        // Node type (smaller, muted)
+        context.font = `bold ${fontSize - 2}px ${settings.labelFont || "sans-serif"}`;
+        context.fillStyle = borderColor;
+        context.textAlign = "left";
+        context.textBaseline = "top";
+        context.fillText(nodeType, boxX + 10, boxY + 6);
+
+        // Label text
+        context.font = `${fontSize}px ${settings.labelFont || "sans-serif"}`;
+        context.fillStyle = fontColor;
+        context.textBaseline = "bottom";
+        context.fillText(label, boxX + 10, boxY + boxHeight - 6);
     }
 
     // ── Initialize Sigma ─────────────────────
@@ -187,6 +244,7 @@
         maxCameraRatio: 10,
         zoomingRatio: 1.2,
         labelRenderer: drawLabel,
+        hoverRenderer: drawHover,
         labelFont: "sans-serif",
         labelSize: 11,
         labelWeight: "normal",
@@ -204,6 +262,20 @@
     // ── Initialize ───────────────────────────
     ui.init(graphData, validationLookupById);
     editorModule.initJsonldEditor(jsonldText, () => ui.getSelectedNode());
+
+    // ── Theme toggle wiring ──────────────────
+    const themeToggleBtn = document.getElementById("theme-toggle");
+    themeToggleBtn.addEventListener("click", () => {
+        window.themeManager.toggle();
+    });
+    window.themeManager.updateToggleButton();
+
+    // Re-render on theme change
+    window.addEventListener("theme-changed", () => {
+        const styles = getComputedStyle(document.documentElement);
+        sigmaInstance.setSetting("labelColor", { color: styles.getPropertyValue("--text-primary").trim() });
+        sigmaInstance.refresh();
+    });
 
     // Run initial layout
     setTimeout(() => layoutManager.applyLayout("force"), 100);

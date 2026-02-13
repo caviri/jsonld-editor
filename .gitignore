@@ -1,0 +1,44 @@
+# ── OS files ──────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ── Editor / IDE ──────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# ── Node / npm (if ever used) ─────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# ── Python (dev servers, caches) ──────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+.venv/
+venv/
+
+# ── Build artefacts ───────────────────────────
+dist/
+build/
+*.min.js
+*.min.css
+
+# ── Logs & temp ───────────────────────────────
+*.log
+tmp/
+temp/
+
+# ── Agent / AI tooling ────────────────────────
+.gemini/
+.agent/
+validation_results.json

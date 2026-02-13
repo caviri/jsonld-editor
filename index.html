@@ -24,6 +24,58 @@
 <body>
 
     <div id="app">
+        <!-- ── Marquee Banner ─────────────────── -->
+        <div id="marquee-banner">
+            <!-- Light-mode marquee (with emojis) -->
+            <span class="marquee-track marquee-light">
+                <strong>JSON-LD Explorer</strong> — Interactive linked-data graph visualisation
+                <span class="marquee-sep">◆</span>
+                🔍 Search nodes by name or ID in the sidebar
+                <span class="marquee-sep">◆</span>
+                🎨 Toggle entity types with the filter checkboxes
+                <span class="marquee-sep">◆</span>
+                🖱️ Click a node to highlight its connections · Hover for a tooltip
+                <span class="marquee-sep">◆</span>
+                ✋ Enable drag mode to reposition nodes
+                <span class="marquee-sep">◆</span>
+                📝 Open the JSON-LD editor, make changes, and click Apply to rebuild the graph
+                <span class="marquee-sep">◆</span>
+                📊 Expand the data table to browse nodes by type
+                <span class="marquee-sep">◆</span>
+                ⊞ Switch layouts: Force Atlas · Circular · Radial · Grid
+                <span class="marquee-sep">◆</span>
+                🌙 Toggle theme with the moon/sun button
+                <span class="marquee-sep">◆</span>
+                Built by <a href="https://github.com/caviri" target="_blank" class="marquee-link">@caviri</a>
+                <span class="marquee-sep">◆</span>
+            </span>
+            <!-- Dark-mode marquee (ASCII, no emojis) -->
+            <span class="marquee-track marquee-dark">
+                <strong>&gt;_ JSON-LD Explorer</strong> // Interactive linked-data graph visualisation
+                <span class="marquee-sep">&lt;/&gt;</span>
+                [SEARCH] Query nodes by name or ID in the sidebar
+                <span class="marquee-sep">::</span>
+                [FILTER] Toggle entity types with the checkboxes
+                <span class="marquee-sep">::</span>
+                [CLICK] Select a node to highlight connections // hover for tooltip
+                <span class="marquee-sep">::</span>
+                [DRAG] Enable drag mode to reposition nodes
+                <span class="marquee-sep">::</span>
+                [EDIT] Open the JSON-LD editor &gt; make changes &gt; Apply to rebuild
+                <span class="marquee-sep">::</span>
+                [TABLE] Expand the data panel to browse nodes by type
+                <span class="marquee-sep">::</span>
+                [LAYOUT] Force Atlas | Circular | Radial | Grid
+                <span class="marquee-sep">::</span>
+                [THEME] Toggle dark/light with the sun/moon button
+                <span class="marquee-sep">::</span>
+                Built by <a href="https://github.com/caviri" target="_blank" class="marquee-link">@caviri</a>
+                <span class="marquee-sep">&lt;/&gt;</span>
+            </span>
+            <!-- Fixed right badge -->
+            <span id="marquee-badge">h4ck1ng.science</span>
+        </div>
+
         <div id="main-content">
 
             <!-- ── Sidebar ────────────────────────── -->
@@ -118,6 +170,7 @@
 
                     <!-- Controls -->
                     <div id="controls">
+                        <button id="theme-toggle" class="control-btn" title="Toggle dark/light theme">🌙</button>
                         <button id="zoom-in" class="control-btn" title="Zoom in">+</button>
                         <button id="zoom-out" class="control-btn" title="Zoom out">−</button>
                         <button id="zoom-fit" class="control-btn" title="Fit to screen">⊙</button>
@@ -230,6 +283,7 @@
     </div>
 
     <!-- ── Scripts (order matters) ─────────────── -->
+    <script src="js/theme.js"></script>
     <script src="js/config.js"></script>
     <script src="js/graph.js"></script>
     <script src="js/layouts.js"></script>

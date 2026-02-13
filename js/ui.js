@@ -28,6 +28,13 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
     let isDragging = false;
     let dragModeEnabled = false;
 
+    // Theme-aware CSS color helpers
+    function cssVar(name) {
+        return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+    function mutedNodeColor() { return cssVar("--node-muted") || "#d1d5db"; }
+    function mutedEdgeColor() { return cssVar("--edge-muted") || "#e5e7eb"; }
+
     // DOM elements
     const filtersContainer = document.getElementById("filters");
     const edgeLegend = document.getElementById("edge-legend");
@@ -194,7 +201,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
                 graph.setNodeAttribute(id, "color", attrs.originalColor);
                 graph.setNodeAttribute(id, "zIndex", 1);
             } else {
-                graph.setNodeAttribute(id, "color", "#d1d5db");
+                graph.setNodeAttribute(id, "color", mutedNodeColor());
                 graph.setNodeAttribute(id, "zIndex", 0);
             }
         });
@@ -205,7 +212,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
                 graph.setEdgeAttribute(id, "size", 3);
                 graph.setEdgeAttribute(id, "zIndex", 1);
             } else {
-                graph.setEdgeAttribute(id, "color", "#e5e7eb");
+                graph.setEdgeAttribute(id, "color", mutedEdgeColor());
                 graph.setEdgeAttribute(id, "size", 1);
                 graph.setEdgeAttribute(id, "zIndex", 0);
             }
@@ -231,7 +238,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
                 graph.setNodeAttribute(id, "color", attrs.originalColor);
                 graph.setNodeAttribute(id, "zIndex", 1);
             } else {
-                graph.setNodeAttribute(id, "color", "#d1d5db");
+                graph.setNodeAttribute(id, "color", mutedNodeColor());
                 graph.setNodeAttribute(id, "zIndex", 0);
             }
         });
@@ -242,7 +249,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
                 graph.setEdgeAttribute(id, "size", 3);
                 graph.setEdgeAttribute(id, "zIndex", 1);
             } else {
-                graph.setEdgeAttribute(id, "color", "#e5e7eb");
+                graph.setEdgeAttribute(id, "color", mutedEdgeColor());
                 graph.setEdgeAttribute(id, "size", 1);
                 graph.setEdgeAttribute(id, "zIndex", 0);
             }
@@ -373,7 +380,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
                 graph.setNodeAttribute(id, "color", attrs.originalColor);
                 graph.setNodeAttribute(id, "zIndex", 1);
             } else {
-                graph.setNodeAttribute(id, "color", "#d1d5db");
+                graph.setNodeAttribute(id, "color", mutedNodeColor());
                 graph.setNodeAttribute(id, "zIndex", 0);
             }
         });
@@ -384,7 +391,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
                 graph.setEdgeAttribute(id, "size", 3);
                 graph.setEdgeAttribute(id, "zIndex", 1);
             } else {
-                graph.setEdgeAttribute(id, "color", "#e5e7eb");
+                graph.setEdgeAttribute(id, "color", mutedEdgeColor());
                 graph.setEdgeAttribute(id, "size", 1);
                 graph.setEdgeAttribute(id, "zIndex", 0);
             }
