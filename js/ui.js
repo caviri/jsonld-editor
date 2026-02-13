@@ -758,6 +758,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
         });
 
         sigmaInstance.on("enterNode", ({ node }) => {
+            graphContainer.style.cursor = "pointer";
             const attrs = graph.getNodeAttributes(node);
             if (tooltipsEnabled) {
                 document.getElementById("tooltip-title").textContent = attrs.label;
@@ -798,6 +799,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
         });
 
         sigmaInstance.on("enterEdge", ({ edge }) => {
+            graphContainer.style.cursor = "pointer";
             if (!tooltipsEnabled) return;
             const attrs = graph.getEdgeAttributes(edge);
             const source = graph.getSourceAttribute(edge, "label");
@@ -812,6 +814,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
         });
 
         sigmaInstance.on("leaveNode", () => {
+            graphContainer.style.cursor = "default";
             tooltip.classList.remove("visible");
             hoveredNode = null;
             if (selectedNode) restoreSelectionHighlight();
@@ -819,6 +822,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
         });
 
         sigmaInstance.on("leaveEdge", () => {
+            graphContainer.style.cursor = "default";
             tooltip.classList.remove("visible");
         });
 
