@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JSON-LD Graph Visualization</title>
+    <meta name="description"
+        content="Interactive JSON-LD linked‑data graph explorer with Sigma.js. Edit, validate, and visualise JSON-LD ontologies directly in the browser.">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/styles.css">
+
+    <!-- CodeMirror -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+
+    <!-- Graphology + Sigma.js (same versions as original) -->
+    <script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
+</head>
+
+<body>
+
+    <div id="app">
+        <div id="main-content">
+
+            <!-- ── Sidebar ────────────────────────── -->
+            <div id="sidebar-wrapper">
+                <div id="sidebar">
+                    <div id="sidebar-header">
+                        <div id="sidebar-header-top">
+                            <div>
+                                <h1>JSON-LD Explorer</h1>
+                                <p>Interactive graph visualisation</p>
+                            </div>
+                            <button id="open-jsonld-editor-btn" class="sidebar-header-action">Open Editor</button>
+                        </div>
+                    </div>
+
+                    <div id="search-container">
+                        <input type="text" id="search-input" placeholder="Search nodes..." autocomplete="off">
+                        <div id="search-results"></div>
+                    </div>
+
+                    <div class="sidebar-section">
+                        <div class="sidebar-section-header">
+                            <h3>Entity Types</h3>
+                            <span class="sidebar-section-toggle">▼</span>
+                        </div>
+                        <div class="sidebar-section-content">
+                            <div id="filters"></div>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-section">
+                        <div class="sidebar-section-header">
+                            <h3>Edge Types</h3>
+                            <span class="sidebar-section-toggle">▼</span>
+                        </div>
+                        <div class="sidebar-section-content">
+                            <div id="edge-legend"></div>
+                        </div>
+                    </div>
+
+                    <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
+
+                    <div id="details-container" style="padding: 20px; overflow-y: auto; flex: 1;">
+                        <p id="details-placeholder">Click a node to see its properties</p>
+                        <div id="node-details">
+                            <h3 id="node-title"></h3>
+                            <span id="node-type"></span>
+                            <div id="node-actions">
+                                <button id="edit-node-jsonld-btn" class="node-action-btn" disabled>Edit in
+                                    JSON-LD</button>
+                            </div>
+                            <div id="node-properties"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <button id="sidebar-toggle" title="Toggle sidebar">◀</button>
+            </div>
+
+            <!-- ── JSON-LD Editor ─────────────────── -->
+            <div id="jsonld-editor-wrapper" class="collapsed">
+                <div id="jsonld-editor-panel">
+                    <div id="jsonld-editor-header">
+                        <span id="jsonld-editor-title">JSON-LD Source</span>
+                        <div id="jsonld-editor-actions">
+                            <button id="jsonld-apply-btn" class="jsonld-action-btn">Apply</button>
+                            <button id="jsonld-download-btn" class="jsonld-action-btn">Download</button>
+                        </div>
+                    </div>
+                    <div id="jsonld-editor-toolbar">
+                        <button id="jsonld-toggle-minimap-btn" class="jsonld-toolbar-btn">Show Minimap</button>
+                    </div>
+                    <div id="jsonld-editor-status">Loading editor…</div>
+                    <div id="jsonld-editor-container">
+                        <div id="jsonld-editor-main">
+                            <textarea id="jsonld-editor-textarea"></textarea>
+                        </div>
+                        <div id="jsonld-minimap">
+                            <div id="jsonld-minimap-track"></div>
+                            <div id="jsonld-minimap-markers"></div>
+                            <div id="jsonld-minimap-viewport"></div>
+                        </div>
+                    </div>
+                </div>
+                <button id="jsonld-editor-toggle" title="Toggle editor panel">▶</button>
+            </div>
+
+            <!-- ── Graph area ─────────────────────── -->
+            <div id="graph-area">
+                <div id="graph-container">
+                    <div id="sigma-container"></div>
+
+                    <!-- Controls -->
+                    <div id="controls">
+                        <button id="zoom-in" class="control-btn" title="Zoom in">+</button>
+                        <button id="zoom-out" class="control-btn" title="Zoom out">−</button>
+                        <button id="zoom-fit" class="control-btn" title="Fit to screen">⊙</button>
+                        <button id="reset-view" class="control-btn" title="Reset everything">↺</button>
+                        <button id="toggle-drag" class="control-btn" title="Toggle drag mode">✋</button>
+                        <button id="toggle-tooltip" class="control-btn active" title="Toggle tooltips">💬</button>
+                        <button id="toggle-sync" class="control-btn active"
+                            title="Toggle table sync on click">🔗</button>
+                        <div id="layout-toggle-wrapper">
+                            <button id="layout-toggle" class="control-btn" title="Change layout">⊞</button>
+                            <div id="layout-menu">
+                                <button class="layout-menu-item active" data-layout="force"
+                                    title="Force-directed layout">🔀 Force Atlas</button>
+                                <button class="layout-menu-item" data-layout="circular" title="Circular layout">⭕
+                                    Circular</button>
+                                <button class="layout-menu-item" data-layout="radial" title="Radial hierarchy layout">🎯
+                                    Radial</button>
+                                <button class="layout-menu-item" data-layout="grid" title="Grid layout">📐 Grid</button>
+                            </div>
+                        </div>
+                        <button id="stop-layout" class="control-btn" style="display:none;"
+                            title="Stop layout animation">⏹</button>
+                        <button id="info-btn" class="control-btn" title="Help & info">ℹ</button>
+                    </div>
+
+                    <!-- Drag hint -->
+                    <div id="drag-hint">Drag mode enabled — drag nodes to reposition them</div>
+
+                    <!-- Stats -->
+                    <div id="stats">
+                        Nodes: <span id="node-count">0</span> &nbsp;·&nbsp;
+                        Edges: <span id="edge-count">0</span> &nbsp;·&nbsp;
+                        <span id="validation-count"></span>
+                    </div>
+
+                    <!-- Tooltip -->
+                    <div id="tooltip">
+                        <div id="tooltip-title"></div>
+                        <span id="tooltip-type"></span>
+                        <div id="tooltip-edge"></div>
+                        <div id="tooltip-properties"></div>
+                    </div>
+
+                    <!-- UI tooltip (for control buttons) -->
+                    <div id="ui-tooltip"></div>
+                </div>
+
+                <!-- Data Panel -->
+                <div id="data-panel" class="collapsed">
+                    <div id="data-panel-header">
+                        <h3>📊 Data Table</h3>
+                        <span id="data-panel-toggle">▲</span>
+                    </div>
+                    <div id="data-panel-tabs"></div>
+                    <div id="data-panel-content"></div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- ── Info modal ──────────────────────────── -->
+    <div id="info-modal-overlay" class="hidden">
+        <div id="info-modal">
+            <button id="info-close-btn" aria-label="Close modal">✕</button>
+            <h2>JSON-LD Explorer</h2>
+            <p class="modal-subtitle">Interactive linked-data graph visualisation</p>
+            <ul class="feature-list">
+                <li>
+                    <span class="feature-icon">🔍</span>
+                    <div><span class="feature-title">Search</span> — type in the sidebar to find nodes by name or ID.
+                    </div>
+                </li>
+                <li>
+                    <span class="feature-icon">🎨</span>
+                    <div><span class="feature-title">Filters</span> — toggle entity types via the checkboxes.</div>
+                </li>
+                <li>
+                    <span class="feature-icon">🖱️</span>
+                    <div><span class="feature-title">Interact</span> — click a node to see details; hover for a tooltip.
+                    </div>
+                </li>
+                <li>
+                    <span class="feature-icon">✋</span>
+                    <div><span class="feature-title">Drag mode</span> — enable with the ✋ button, then drag nodes.</div>
+                </li>
+                <li>
+                    <span class="feature-icon">📝</span>
+                    <div><span class="feature-title">JSON-LD Editor</span> — open the built-in editor, make changes, and
+                        click <em>Apply</em>.</div>
+                </li>
+                <li>
+                    <span class="feature-icon">📊</span>
+                    <div><span class="feature-title">Data table</span> — expand the bottom panel to browse nodes by
+                        type.</div>
+                </li>
+                <li>
+                    <span class="feature-icon">⊞</span>
+                    <div><span class="feature-title">Layouts</span> — switch between Force Atlas, Circular, Radial, and
+                        Grid.</div>
+                </li>
+                <li>
+                    <span class="feature-icon">⌨️</span>
+                    <div><span class="feature-title">Keyboard</span> — press <span class="kbd">Esc</span> to close
+                        modals.</div>
+                </li>
+            </ul>
+            <button id="info-dismiss-btn">Got it!</button>
+        </div>
+    </div>
+
+    <!-- ── Scripts (order matters) ─────────────── -->
+    <script src="js/config.js"></script>
+    <script src="js/graph.js"></script>
+    <script src="js/layouts.js"></script>
+    <script src="js/editor.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/app.js"></script>
+
+</body>
+
+</html>
