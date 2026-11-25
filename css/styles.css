@@ -297,12 +297,13 @@ body {
 /* ── Dark mode: thicker gold borders + vintage texture on panels ── */
 
 [data-theme="dark"] #sidebar,
+[data-theme="dark"] #workbench-wrapper,
 [data-theme="dark"] #jsonld-editor-wrapper,
 [data-theme="dark"] #data-panel,
 [data-theme="dark"] #stats,
 [data-theme="dark"] #tooltip,
 [data-theme="dark"] #ui-tooltip,
-[data-theme="dark"] #info-modal {
+[data-theme="dark"] .modal {
     background-image: var(--bg-texture);
 }
 
@@ -631,6 +632,7 @@ body {
 #details-container {
     flex: 1;
     overflow-y: auto;
+    padding: 16px 20px 20px;
 }
 
 #details-placeholder {
@@ -724,10 +726,11 @@ body {
 /* ── JSON-LD editor panel ──────────────────── */
 
 #jsonld-editor-wrapper {
+    --editor-width: 440px;
     position: relative;
     display: flex;
-    width: 440px;
-    min-width: 440px;
+    width: var(--editor-width);
+    min-width: var(--editor-width);
     border-right: 1px solid var(--border-default);
     background: var(--bg-surface);
     transition: width 0.3s ease, min-width 0.3s ease, border-color 0.3s ease, background var(--transition-speed);
@@ -1302,18 +1305,44 @@ body {
 /* ── Data Panel (bottom) ───────────────────── */
 
 #data-panel {
+    --data-panel-height: 300px;
     background: var(--bg-surface);
     border-top: 1px solid var(--border-default);
-    transition: max-height 0.3s ease, background var(--transition-speed);
-    max-height: 280px;
+    transition: height 0.25s ease, background var(--transition-speed);
+    height: var(--data-panel-height);
     overflow: hidden;
     flex-shrink: 0;
     position: relative;
     z-index: 50;
+    display: flex;
+    flex-direction: column;
+}
+
+body.resizing #data-panel {
+    transition: none;
 }
 
 #data-panel.collapsed {
-    max-height: 36px;
+    height: 37px;
+}
+
+#data-panel-resize {
+    position: absolute;
+    top: -3px;
+    left: 0;
+    right: 0;
+    height: 7px;
+    cursor: ns-resize;
+    z-index: 5;
+}
+
+#data-panel.collapsed #data-panel-resize {
+    display: none;
+}
+
+body.resizing {
+    cursor: ns-resize;
+    user-select: none;
 }
 
 #data-panel-header {
@@ -1391,7 +1420,8 @@ body {
 }
 
 #data-panel-content {
-    height: 200px;
+    flex: 1;
+    min-height: 0;
     padding: 0;
     overflow: hidden;
     position: relative;
@@ -1444,7 +1474,7 @@ body {
 
 /* ── Info modal ────────────────────────────── */
 
-#info-modal-overlay {
+.modal-overlay {
     position: fixed;
     top: 0;
     left: 0;
@@ -1461,12 +1491,12 @@ body {
     transition: opacity 0.25s ease;
 }
 
-#info-modal-overlay.hidden {
+.modal-overlay.hidden {
     opacity: 0;
     pointer-events: none;
 }
 
-#info-modal {
+.modal {
     background: var(--modal-bg);
     border-radius: 16px;
     box-shadow: var(--shadow-modal);
@@ -1478,22 +1508,22 @@ body {
     position: relative;
 }
 
-[data-theme="dark"] #info-modal {
+[data-theme="dark"] .modal {
     border: 1px solid var(--border-default);
 }
 
-#info-modal h2 {
+.modal h2 {
     font-size: 20px;
     font-weight: 700;
     color: var(--text-heading);
     margin-bottom: 4px;
 }
 
-[data-theme="dark"] #info-modal h2 {
+[data-theme="dark"] .modal h2 {
     text-shadow: 0 0 12px rgba(201, 162, 39, 0.3);
 }
 
-#info-modal .modal-subtitle {
+.modal .modal-subtitle {
     font-size: 13px;
     color: var(--text-secondary);
     margin-bottom: 20px;

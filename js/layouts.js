@@ -24,65 +24,91 @@ function createLayouts(graph, sigmaInstance) {
         layoutRunning = false;
     }
 
+    /** Node ids grouped by display type, biggest groups first (ring order respected). */
+    function groupsByType() {
+        const groups = new Map();
+        graph.forEachNode((nodeId, attrs) => {
+            const type = attrs.nodeType || "Untyped";
+            if (!groups.has(type)) groups.set(type, { ids: [], external: Boolean(attrs.external) });
+            groups.get(type).ids.push(nodeId);
+        });
+        return [...groups.entries()].sort((a, b) =>
+            (a[1].external - b[1].external) || b[1].ids.length - a[1].ids.length || a[0].localeCompare(b[0]));
+    }
+
     const layouts = {
-        force() {
+        force(opts = {}) {
             stopForceAnimation();
             forceIterations = 0;
-            const maxIterations = 300;
-
+            const count = graph.order;
+            const maxIterations = opts.warm ? 80 : (count > 1500 ? 120 : count > 400 ? 200 : 300);
             stopLayoutBtn.style.display = "flex";
             layoutRunning = true;
 
             const nodes = [];
             const nodeIndex = {};
-            let i = 0;
             graph.forEachNode((nodeId, attrs) => {
-                nodeIndex[nodeId] = i;
+                nodeIndex[nodeId] = nodes.length;
                 nodes.push({
                     id: nodeId,
-                    x: attrs.x || Math.random() * 500 - 250,
-                    y: attrs.y || Math.random() * 500 - 250,
+                    x: Number.isFinite(attrs.x) && attrs.x !== 0 ? attrs.x : Math.random() * 500 - 250,
+                    y: Number.isFinite(attrs.y) && attrs.y !== 0 ? attrs.y : Math.random() * 500 - 250,
                     vx: 0,
                     vy: 0,
-                    size: attrs.size || 10,
                 });
-                i++;
             });
-
             const edges = [];
             graph.forEachEdge((edgeId, attrs, source, target) => {
-                edges.push({
-                    source: nodeIndex[source],
-                    target: nodeIndex[target],
-                });
+                if (source !== target) edges.push({ source: nodeIndex[source], target: nodeIndex[target] });
             });
 
             const repulsion = 5000;
             const attraction = 0.01;
             const gravity = 0.1;
             const damping = 0.9;
+            const exact = nodes.length <= 400;
+            const cellSize = 220;
+
+            function repulse(a, b) {
+                const dx = b.x - a.x;
+                const dy = b.y - a.y;
+                const dist2 = dx * dx + dy * dy || 1;
+                const dist = Math.sqrt(dist2);
+                const force = repulsion / dist2;
+                const fx = (dx / dist) * force;
+                const fy = (dy / dist) * force;
+                a.vx -= fx; a.vy -= fy;
+                b.vx += fx; b.vy += fy;
+            }
 
             function simulateStep() {
-                nodes.forEach(node => {
-                    node.vx *= damping;
-                    node.vy *= damping;
-                });
-
-                for (let i = 0; i < nodes.length; i++) {
-                    for (let j = i + 1; j < nodes.length; j++) {
-                        const dx = nodes[j].x - nodes[i].x;
-                        const dy = nodes[j].y - nodes[i].y;
-                        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-                        const force = repulsion / (dist * dist);
-                        const fx = (dx / dist) * force;
-                        const fy = (dy / dist) * force;
-                        nodes[i].vx -= fx;
-                        nodes[i].vy -= fy;
-                        nodes[j].vx += fx;
-                        nodes[j].vy += fy;
+                nodes.forEach(node => { node.vx *= damping; node.vy *= damping; });
+                if (exact) {
+                    for (let i = 0; i < nodes.length; i++) {
+                        for (let j = i + 1; j < nodes.length; j++) repulse(nodes[i], nodes[j]);
                     }
+                } else {
+                    // Grid buckets: repulsion only between nearby nodes (O(n) per step).
+                    const grid = new Map();
+                    nodes.forEach(node => {
+                        const key = `${Math.floor(node.x / cellSize)}|${Math.floor(node.y / cellSize)}`;
+                        if (!grid.has(key)) grid.set(key, []);
+                        grid.get(key).push(node);
+                    });
+                    grid.forEach((cell, key) => {
+                        const [cx, cy] = key.split("|").map(Number);
+                        for (let ox = 0; ox <= 1; ox++) {
+                            for (let oy = -1; oy <= 1; oy++) {
+                                if (ox === 0 && oy < 0) continue;
+                                const other = ox === 0 && oy === 0 ? cell : grid.get(`${cx + ox}|${cy + oy}`);
+                                if (!other) continue;
+                                for (let i = 0; i < cell.length; i++) {
+                                    for (let j = other === cell ? i + 1 : 0; j < other.length; j++) repulse(cell[i], other[j]);
+                                }
+                            }
+                        }
+                    });
                 }
-
                 edges.forEach(edge => {
                     const source = nodes[edge.source];
                     const target = nodes[edge.target];
@@ -92,37 +118,32 @@ function createLayouts(graph, sigmaInstance) {
                     const force = dist * attraction;
                     const fx = (dx / dist) * force;
                     const fy = (dy / dist) * force;
-                    source.vx += fx;
-                    source.vy += fy;
-                    target.vx -= fx;
-                    target.vy -= fy;
+                    source.vx += fx; source.vy += fy;
+                    target.vx -= fx; target.vy -= fy;
                 });
-
                 nodes.forEach(node => {
                     node.vx -= node.x * gravity * 0.01;
                     node.vy -= node.y * gravity * 0.01;
-                });
-
-                nodes.forEach(node => {
+                    // Clamp to keep the simulation stable on dense graphs.
+                    const speed = Math.hypot(node.vx, node.vy);
+                    if (speed > 60) { node.vx *= 60 / speed; node.vy *= 60 / speed; }
                     node.x += node.vx;
                     node.y += node.vy;
                 });
             }
 
             function animateForce() {
-                const iterationsPerFrame = 3;
+                const iterationsPerFrame = nodes.length > 1500 ? 1 : 3;
                 for (let k = 0; k < iterationsPerFrame && forceIterations < maxIterations; k++) {
                     simulateStep();
                     forceIterations++;
                 }
-
                 nodes.forEach(node => {
+                    if (!graph.hasNode(node.id)) return;
                     graph.setNodeAttribute(node.id, "x", node.x);
                     graph.setNodeAttribute(node.id, "y", node.y);
                 });
-
                 sigmaInstance.refresh();
-
                 if (forceIterations < maxIterations && layoutRunning) {
                     forceAnimationId = requestAnimationFrame(animateForce);
                 } else {
@@ -130,38 +151,20 @@ function createLayouts(graph, sigmaInstance) {
                     layoutRunning = false;
                 }
             }
-
             forceAnimationId = requestAnimationFrame(animateForce);
         },
 
         circular() {
             stopForceAnimation();
-            const nodesByType = {};
-            graph.forEachNode((nodeId, attrs) => {
-                const type = attrs.nodeType;
-                if (!nodesByType[type]) nodesByType[type] = [];
-                nodesByType[type].push(nodeId);
-            });
-
-            const typeOrder = ["Organization", "Person", "Repository", "Article", "Membership", "Contribution"];
-            const sortedTypes = Object.keys(nodesByType).sort((a, b) => {
-                const aIdx = typeOrder.indexOf(a);
-                const bIdx = typeOrder.indexOf(b);
-                return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
-            });
-
-            let currentAngle = 0;
-            const totalNodes = graph.order;
+            const groups = groupsByType();
+            const totalNodes = graph.order || 1;
             const radius = Math.max(200, totalNodes * 15);
-
-            sortedTypes.forEach(type => {
-                const nodes = nodesByType[type];
-                const anglePerNode = (2 * Math.PI) / totalNodes;
-                nodes.forEach(nodeId => {
-                    const x = radius * Math.cos(currentAngle);
-                    const y = radius * Math.sin(currentAngle);
-                    graph.setNodeAttribute(nodeId, "x", x);
-                    graph.setNodeAttribute(nodeId, "y", y);
+            const anglePerNode = (2 * Math.PI) / totalNodes;
+            let currentAngle = 0;
+            groups.forEach(([, group]) => {
+                group.ids.forEach(nodeId => {
+                    graph.setNodeAttribute(nodeId, "x", radius * Math.cos(currentAngle));
+                    graph.setNodeAttribute(nodeId, "y", radius * Math.sin(currentAngle));
                     currentAngle += anglePerNode;
                 });
             });
@@ -169,41 +172,20 @@ function createLayouts(graph, sigmaInstance) {
 
         radial() {
             stopForceAnimation();
-            const nodesByType = {};
-            graph.forEachNode((nodeId, attrs) => {
-                const type = attrs.nodeType;
-                if (!nodesByType[type]) nodesByType[type] = [];
-                nodesByType[type].push(nodeId);
-            });
-
-            const ringConfig = {
-                Organization: { ring: 0, radius: 0 },
-                Person: { ring: 1, radius: 200 },
-                Repository: { ring: 2, radius: 350 },
-                Article: { ring: 2, radius: 400 },
-                Membership: { ring: 3, radius: 500 },
-                Contribution: { ring: 3, radius: 550 },
-            };
-
-            Object.entries(nodesByType).forEach(([type, nodes]) => {
-                const config = ringConfig[type] || { ring: 3, radius: 450 };
-                const count = nodes.length;
-
-                if (config.radius === 0 && count > 0) {
-                    const clusterRadius = count > 1 ? 50 : 0;
-                    nodes.forEach((nodeId, i) => {
-                        const angle = (2 * Math.PI * i) / count;
-                        graph.setNodeAttribute(nodeId, "x", clusterRadius * Math.cos(angle));
-                        graph.setNodeAttribute(nodeId, "y", clusterRadius * Math.sin(angle));
-                    });
-                } else {
-                    nodes.forEach((nodeId, i) => {
-                        const angle = (2 * Math.PI * i) / count - Math.PI / 2;
-                        const jitter = (Math.random() - 0.5) * 30;
-                        graph.setNodeAttribute(nodeId, "x", (config.radius + jitter) * Math.cos(angle));
-                        graph.setNodeAttribute(nodeId, "y", (config.radius + jitter) * Math.sin(angle));
-                    });
-                }
+            const groups = groupsByType();
+            // The type with the most connections per node goes in the middle.
+            const degreeOf = ids => ids.reduce((sum, id) => sum + graph.degree(id), 0) / Math.max(1, ids.length);
+            const ordered = groups.filter(([, g]) => !g.external).sort((a, b) => degreeOf(b[1].ids) - degreeOf(a[1].ids))
+                .concat(groups.filter(([, g]) => g.external));
+            ordered.forEach(([, group], ring) => {
+                const count = group.ids.length;
+                const radius = ring === 0 ? (count > 1 ? 60 + count * 4 : 0) : 120 + ring * 140 + count * 2;
+                group.ids.forEach((nodeId, i) => {
+                    const angle = (2 * Math.PI * i) / count - Math.PI / 2 + ring * 0.3;
+                    const jitter = ring === 0 ? 0 : (Math.random() - 0.5) * 30;
+                    graph.setNodeAttribute(nodeId, "x", (radius + jitter) * Math.cos(angle));
+                    graph.setNodeAttribute(nodeId, "y", (radius + jitter) * Math.sin(angle));
+                });
             });
         },
 
@@ -211,17 +193,14 @@ function createLayouts(graph, sigmaInstance) {
             stopForceAnimation();
             const nodes = [];
             graph.forEachNode(nodeId => nodes.push(nodeId));
-
             nodes.sort((a, b) => {
-                const typeA = graph.getNodeAttribute(a, "nodeType");
-                const typeB = graph.getNodeAttribute(b, "nodeType");
+                const typeA = String(graph.getNodeAttribute(a, "nodeType") || "");
+                const typeB = String(graph.getNodeAttribute(b, "nodeType") || "");
                 if (typeA !== typeB) return typeA.localeCompare(typeB);
-                return graph.getNodeAttribute(a, "label").localeCompare(graph.getNodeAttribute(b, "label"));
+                return String(graph.getNodeAttribute(a, "label") || "").localeCompare(String(graph.getNodeAttribute(b, "label") || ""));
             });
-
-            const cols = Math.ceil(Math.sqrt(nodes.length));
+            const cols = Math.ceil(Math.sqrt(nodes.length)) || 1;
             const spacing = 150;
-
             nodes.forEach((nodeId, i) => {
                 const col = i % cols;
                 const row = Math.floor(i / cols);
@@ -231,13 +210,12 @@ function createLayouts(graph, sigmaInstance) {
         },
     };
 
-    function applyLayout(layoutName) {
+    function applyLayout(layoutName, opts = {}) {
         currentLayout = layoutName;
         if (layouts[layoutName]) {
-            layouts[layoutName]();
+            layouts[layoutName](opts);
             sigmaInstance.refresh();
         }
-
         document.querySelectorAll(".layout-menu-item").forEach(btn => {
             btn.classList.toggle("active", btn.dataset.layout === layoutName);
         });
@@ -247,9 +225,7 @@ function createLayouts(graph, sigmaInstance) {
         return currentLayout;
     }
 
-    stopLayoutBtn.addEventListener("click", () => {
-        stopForceAnimation();
-    });
+    stopLayoutBtn.addEventListener("click", () => stopForceAnimation());
 
     return {
         applyLayout,

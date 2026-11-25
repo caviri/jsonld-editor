@@ -4,21 +4,37 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JSON-LD Graph Visualization</title>
+    <title>JSON-LD Explorer</title>
     <meta name="description"
-        content="Interactive JSON-LD linked‑data graph explorer with Sigma.js. Edit, validate, and visualise JSON-LD ontologies directly in the browser.">
+        content="Design, edit, validate and visualise JSON-LD graphs and ontologies in the browser — term search across reusable vocabularies, SPARQL, SHACL and .rete export.">
+
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M9 9 23 11 15 24Z' fill='none' stroke='%2364748b' stroke-width='1.5'/%3E%3Ccircle cx='9' cy='9' r='5' fill='%233b82f6'/%3E%3Ccircle cx='23' cy='11' r='4' fill='%2322c55e'/%3E%3Ccircle cx='15' cy='24' r='5' fill='%23f97316'/%3E%3C/svg%3E">
+
+    <!-- CodeMirror 5 + add-ons (before our styles, so ours win) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.css">
 
     <!-- Styles -->
     <link rel="stylesheet" href="css/styles.css">
-
-    <!-- CodeMirror -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+    <link rel="stylesheet" href="css/workbench.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sparql/sparql.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/turtle/turtle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/mode/overlay.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/hint/show-hint.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/brace-fold.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>
 
-    <!-- Graphology + Sigma.js (same versions as original) -->
+    <!-- Graphology + Sigma.js -->
     <script src="https://cdn.jsdelivr.net/npm/graphology@0.25.4/dist/graphology.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sigma@2.4.0/build/sigma.min.js"></script>
+    <!-- The rete engine (rete-graph on npm) is loaded on demand by js/rete.js. -->
 </head>
 
 <body>
@@ -26,53 +42,38 @@
     <div id="app">
         <!-- ── Marquee Banner ─────────────────── -->
         <div id="marquee-banner">
-            <!-- Light-mode marquee (with emojis) -->
             <span class="marquee-track marquee-light">
-                <strong>JSON-LD Explorer</strong> — Interactive linked-data graph visualisation
+                <strong>JSON-LD Explorer</strong> — design ontologies by reuse, edit and validate linked data
                 <span class="marquee-sep">◆</span>
-                🔍 Search nodes by name or ID in the sidebar
+                🔎 Ctrl+K finds terms in schema.org, DCTerms, FOAF, SKOS, PROV-O, ORG, DCAT, OWL-Time, SHACL, OLS and Wikidata
                 <span class="marquee-sep">◆</span>
-                🎨 Toggle entity types with the filter checkboxes
+                ＋ Create classes, properties and instances that reuse existing terms
                 <span class="marquee-sep">◆</span>
-                🖱️ Click a node to highlight its connections · Hover for a tooltip
+                🧬 Schema view shows the class model of any document
                 <span class="marquee-sep">◆</span>
-                ✋ Enable drag mode to reposition nodes
+                ⚠ Problems flags IRIs that RDF tools drop, undefined prefixes and misspelled terms
                 <span class="marquee-sep">◆</span>
-                📝 Open the JSON-LD editor, make changes, and click Apply to rebuild the graph
+                ⬡ Export to .rete, Turtle or N-Triples · query with SPARQL · validate with SHACL — powered by rete
                 <span class="marquee-sep">◆</span>
-                📊 Expand the data table to browse nodes by type
-                <span class="marquee-sep">◆</span>
-                ⊞ Switch layouts: Force Atlas · Circular · Radial · Grid
-                <span class="marquee-sep">◆</span>
-                🌙 Toggle theme with the moon/sun button
-                <span class="marquee-sep">◆</span>
-                Built by <a href="https://github.com/caviri" target="_blank" class="marquee-link">@caviri</a>
+                Built by <a href="https://github.com/caviri" target="_blank" rel="noopener noreferrer" class="marquee-link">@caviri</a>
                 <span class="marquee-sep">◆</span>
             </span>
-            <!-- Dark-mode marquee (ASCII, no emojis) -->
             <span class="marquee-track marquee-dark">
-                <strong>&gt;_ JSON-LD Explorer</strong> // Interactive linked-data graph visualisation
+                <strong>&gt;_ JSON-LD Explorer</strong> // design ontologies by reuse
                 <span class="marquee-sep">&lt;/&gt;</span>
-                [SEARCH] Query nodes by name or ID in the sidebar
+                [CTRL+K] find terms across 15 vocabularies + OLS + Wikidata
                 <span class="marquee-sep">::</span>
-                [FILTER] Toggle entity types with the checkboxes
+                [CREATE] classes / properties / instances that reuse terms
                 <span class="marquee-sep">::</span>
-                [CLICK] Select a node to highlight connections // hover for tooltip
+                [SCHEMA] class-level view of any document
                 <span class="marquee-sep">::</span>
-                [DRAG] Enable drag mode to reposition nodes
+                [LINT] invalid IRIs // undefined prefixes // unknown terms
                 <span class="marquee-sep">::</span>
-                [EDIT] Open the JSON-LD editor &gt; make changes &gt; Apply to rebuild
+                [RETE] export .rete // SPARQL // SHACL
                 <span class="marquee-sep">::</span>
-                [TABLE] Expand the data panel to browse nodes by type
-                <span class="marquee-sep">::</span>
-                [LAYOUT] Force Atlas | Circular | Radial | Grid
-                <span class="marquee-sep">::</span>
-                [THEME] Toggle dark/light with the sun/moon button
-                <span class="marquee-sep">::</span>
-                Built by <a href="https://github.com/caviri" target="_blank" class="marquee-link">@caviri</a>
+                Built by <a href="https://github.com/caviri" target="_blank" rel="noopener noreferrer" class="marquee-link">@caviri</a>
                 <span class="marquee-sep">&lt;/&gt;</span>
             </span>
-            <!-- Fixed right badge -->
             <span id="marquee-badge">h4ck1ng.science</span>
         </div>
 
@@ -85,20 +86,56 @@
                         <div id="sidebar-header-top">
                             <div>
                                 <h1>JSON-LD Explorer</h1>
-                                <p>Interactive graph visualisation</p>
+                                <p>Graph &amp; ontology editor</p>
                             </div>
-                            <button id="open-jsonld-editor-btn" class="sidebar-header-action">Open Editor</button>
+                        </div>
+                        <div id="file-bar">
+                            <div class="file-menu-wrap">
+                                <button class="file-btn" data-menu="menu-new" type="button">New ▾</button>
+                                <div class="file-menu" id="menu-new">
+                                    <button type="button" data-action="new" data-arg="ontology"><strong>Ontology starter</strong><span>owl:Ontology header, a class and a property</span></button>
+                                    <button type="button" data-action="new" data-arg="skos"><strong>SKOS concept scheme</strong><span>a small taxonomy</span></button>
+                                    <button type="button" data-action="new" data-arg="dataset"><strong>Empty dataset</strong><span>schema.org context, no nodes</span></button>
+                                    <button type="button" data-action="new" data-arg="sample"><strong>Open Pulse sample</strong><span>the bundled example graph</span></button>
+                                </div>
+                            </div>
+                            <div class="file-menu-wrap">
+                                <button class="file-btn" data-menu="menu-open" type="button">Open ▾</button>
+                                <div class="file-menu" id="menu-open">
+                                    <button type="button" data-action="open-file"><strong>File…</strong><span>.jsonld .json · .ttl .nt .nq .trig · .rete</span></button>
+                                    <button type="button" data-action="open-url"><strong>From URL…</strong><span>any CORS-enabled JSON-LD, RDF or .rete</span></button>
+                                </div>
+                            </div>
+                            <div class="file-menu-wrap">
+                                <button class="file-btn" data-menu="menu-export" type="button">Export ▾</button>
+                                <div class="file-menu" id="menu-export">
+                                    <button type="button" data-action="export" data-arg="jsonld"><strong>JSON-LD</strong><span>the document as edited</span></button>
+                                    <button type="button" data-action="export" data-arg="ontology"><strong>Ontology module</strong><span>only classes &amp; properties, for reuse</span></button>
+                                    <button type="button" data-action="export" data-arg="ttl"><strong>Turtle (.ttl)</strong><span>via rete</span></button>
+                                    <button type="button" data-action="export" data-arg="nt"><strong>N-Triples (.nt)</strong><span>via rete</span></button>
+                                    <button type="button" data-action="export" data-arg="nq"><strong>N-Quads (.nq)</strong><span>via rete</span></button>
+                                    <button type="button" data-action="export" data-arg="rete"><strong>.rete file…</strong><span>queryable single-file graph + Dataset Card</span></button>
+                                </div>
+                            </div>
+                            <input type="file" id="file-open-input" accept=".jsonld,.json,.ttl,.nt,.nq,.trig,.rete" hidden>
+                        </div>
+                        <div id="doc-bar">
+                            <span id="doc-name" title="Current document">document.jsonld</span>
+                            <div class="doc-bar-actions">
+                                <button id="open-jsonld-editor-btn" class="sidebar-header-action" type="button" title="Open the JSON-LD editor">Editor</button>
+                                <button id="open-workbench-btn" class="sidebar-header-action primary" type="button" title="Ontology workbench (Ctrl+K)">Workbench</button>
+                            </div>
                         </div>
                     </div>
 
                     <div id="search-container">
-                        <input type="text" id="search-input" placeholder="Search nodes..." autocomplete="off">
+                        <input type="text" id="search-input" placeholder="Search nodes in the graph…" autocomplete="off">
                         <div id="search-results"></div>
                     </div>
 
                     <div class="sidebar-section">
                         <div class="sidebar-section-header">
-                            <h3>Entity Types</h3>
+                            <h3>Types</h3>
                             <span class="sidebar-section-toggle">▼</span>
                         </div>
                         <div class="sidebar-section-content">
@@ -108,7 +145,7 @@
 
                     <div class="sidebar-section">
                         <div class="sidebar-section-header">
-                            <h3>Edge Types</h3>
+                            <h3>Relationships</h3>
                             <span class="sidebar-section-toggle">▼</span>
                         </div>
                         <div class="sidebar-section-content">
@@ -118,35 +155,42 @@
 
                     <div class="sidebar-resize-handle" id="sidebar-resize-handle"></div>
 
-                    <div id="details-container" style="padding: 20px; overflow-y: auto; flex: 1;">
+                    <div id="details-container">
                         <p id="details-placeholder">Click a node to see its properties</p>
                         <div id="node-details">
                             <h3 id="node-title"></h3>
                             <span id="node-type"></span>
                             <div id="node-actions">
-                                <button id="edit-node-jsonld-btn" class="node-action-btn" disabled>Edit in
-                                    JSON-LD</button>
+                                <button id="edit-node-jsonld-btn" class="node-action-btn" type="button" disabled>Edit in JSON-LD</button>
                             </div>
                             <div id="node-properties"></div>
                         </div>
                     </div>
                 </div>
 
-                <button id="sidebar-toggle" title="Toggle sidebar">◀</button>
+                <button id="sidebar-toggle" class="panel-toggle" title="Show / hide the sidebar" type="button"><span class="toggle-glyph">≡</span><span class="toggle-arrow">◀</span></button>
             </div>
 
             <!-- ── JSON-LD Editor ─────────────────── -->
             <div id="jsonld-editor-wrapper" class="collapsed">
                 <div id="jsonld-editor-panel">
                     <div id="jsonld-editor-header">
-                        <span id="jsonld-editor-title">JSON-LD Source</span>
+                        <span id="jsonld-editor-title">Source</span>
+                        <div class="fmt-switch" role="tablist" aria-label="Source format">
+                            <button type="button" class="fmt-btn active" data-fmt="jsonld" title="Edit as JSON-LD">JSON-LD</button>
+                            <button type="button" class="fmt-btn" data-fmt="ttl" title="Edit as Turtle (converted by rete; applied back as JSON-LD)">Turtle</button>
+                        </div>
                         <div id="jsonld-editor-actions">
-                            <button id="jsonld-apply-btn" class="jsonld-action-btn">Apply</button>
-                            <button id="jsonld-download-btn" class="jsonld-action-btn">Download</button>
+                            <button id="jsonld-apply-btn" class="jsonld-action-btn" type="button" title="Apply (Ctrl+Enter)">Apply</button>
+                            <button id="jsonld-download-btn" class="jsonld-action-btn" type="button" title="Download (Ctrl+S)">Download</button>
+                            <button id="jsonld-expand-btn" class="jsonld-action-btn" type="button" title="Half screen ↔ previous width (or double-click the editor's edge)">⇔</button>
                         </div>
                     </div>
                     <div id="jsonld-editor-toolbar">
-                        <button id="jsonld-toggle-minimap-btn" class="jsonld-toolbar-btn">Show Minimap</button>
+                        <button id="jsonld-autoapply-btn" class="jsonld-toolbar-btn" type="button" title="Update the graph while you type">Live ✓</button>
+                        <button id="jsonld-format-btn" class="jsonld-toolbar-btn" type="button" title="Pretty-print (Shift+Alt+F)">Format</button>
+                        <button id="jsonld-toggle-minimap-btn" class="jsonld-toolbar-btn" type="button">Minimap</button>
+                        <span class="toolbar-hint">Ctrl+Space: terms · drag the edge to resize</span>
                     </div>
                     <div id="jsonld-editor-status">Loading editor…</div>
                     <div id="jsonld-editor-container">
@@ -160,53 +204,55 @@
                         </div>
                     </div>
                 </div>
-                <button id="jsonld-editor-toggle" title="Toggle editor panel">▶</button>
+                <div id="jsonld-editor-resize" class="panel-resize-handle" title="Drag to resize · double-click: half screen"></div>
+                <button id="jsonld-editor-toggle" class="panel-toggle" title="Show / hide the source editor" type="button"><span class="toggle-glyph">{ }</span><span class="toggle-arrow">▶</span></button>
             </div>
 
             <!-- ── Graph area ─────────────────────── -->
             <div id="graph-area">
                 <div id="graph-container">
                     <div id="sigma-container"></div>
+                    <div id="diagram-container" class="hidden">
+                        <svg id="diagram-svg" xmlns="http://www.w3.org/2000/svg" aria-label="Box diagram of the graph"></svg>
+                        <div id="diagram-notice"></div>
+                    </div>
+                    <div id="view-label">Instance view</div>
 
                     <!-- Controls -->
                     <div id="controls">
-                        <button id="theme-toggle" class="control-btn" title="Toggle dark/light theme">🌙</button>
-                        <button id="zoom-in" class="control-btn" title="Zoom in">+</button>
-                        <button id="zoom-out" class="control-btn" title="Zoom out">−</button>
-                        <button id="zoom-fit" class="control-btn" title="Fit to screen">⊙</button>
-                        <button id="reset-view" class="control-btn" title="Reset everything">↺</button>
-                        <button id="toggle-drag" class="control-btn" title="Toggle drag mode">✋</button>
-                        <button id="toggle-tooltip" class="control-btn active" title="Toggle tooltips">💬</button>
-                        <button id="toggle-sync" class="control-btn active"
-                            title="Toggle table sync on click">🔗</button>
+                        <button id="theme-toggle" class="control-btn" title="Toggle dark/light theme" type="button">🌙</button>
+                        <button id="zoom-in" class="control-btn" title="Zoom in" type="button">+</button>
+                        <button id="zoom-out" class="control-btn" title="Zoom out" type="button">−</button>
+                        <button id="zoom-fit" class="control-btn" title="Fit to screen" type="button">⊙</button>
+                        <button id="reset-view" class="control-btn" title="Reset everything" type="button">↺</button>
+                        <button id="toggle-schema" class="control-btn" title="Schema view: classes and how they relate" type="button">🧬</button>
+                        <button id="toggle-diagram" class="control-btn" title="Box diagram: nodes as cards joined by right-angled links" type="button">▭</button>
+                        <button id="toggle-external" class="control-btn" title="Show referenced IRIs that are not described in the document" type="button">🌐</button>
+                        <button id="toggle-type-links" class="control-btn" title="Show rdf:type links from instances to classes" type="button">Ⓣ</button>
+                        <button id="toggle-drag" class="control-btn" title="Toggle drag mode" type="button">✋</button>
+                        <button id="toggle-tooltip" class="control-btn active" title="Toggle tooltips" type="button">💬</button>
+                        <button id="toggle-sync" class="control-btn active" title="Toggle table sync on click" type="button">🔗</button>
                         <div id="layout-toggle-wrapper">
-                            <button id="layout-toggle" class="control-btn" title="Change layout">⊞</button>
+                            <button id="layout-toggle" class="control-btn" title="Change layout" type="button">⊞</button>
                             <div id="layout-menu">
-                                <button class="layout-menu-item active" data-layout="force"
-                                    title="Force-directed layout">🔀 Force Atlas</button>
-                                <button class="layout-menu-item" data-layout="circular" title="Circular layout">⭕
-                                    Circular</button>
-                                <button class="layout-menu-item" data-layout="radial" title="Radial hierarchy layout">🎯
-                                    Radial</button>
-                                <button class="layout-menu-item" data-layout="grid" title="Grid layout">📐 Grid</button>
+                                <button class="layout-menu-item active" data-layout="force" title="Force-directed layout" type="button">🔀 Force Atlas</button>
+                                <button class="layout-menu-item" data-layout="circular" title="Circular layout" type="button">⭕ Circular</button>
+                                <button class="layout-menu-item" data-layout="radial" title="Radial layout by type" type="button">🎯 Radial</button>
+                                <button class="layout-menu-item" data-layout="grid" title="Grid layout" type="button">📐 Grid</button>
                             </div>
                         </div>
-                        <button id="stop-layout" class="control-btn" style="display:none;"
-                            title="Stop layout animation">⏹</button>
-                        <button id="info-btn" class="control-btn" title="Help & info">ℹ</button>
+                        <button id="stop-layout" class="control-btn" style="display:none;" title="Stop layout animation" type="button">⏹</button>
+                        <button id="info-btn" class="control-btn" title="Help & info" type="button">ℹ</button>
                     </div>
 
-                    <!-- Drag hint -->
                     <div id="drag-hint">Drag mode enabled — drag nodes to reposition them</div>
 
-                    <!-- Stats -->
                     <div id="stats">
                         Nodes: <span id="node-count">0</span> &nbsp;·&nbsp;
                         Edges: <span id="edge-count">0</span> &nbsp;·&nbsp;
                         <span id="validation-count"></span>
                     </div>
 
-                    <!-- Tooltip -->
                     <div id="tooltip">
                         <div id="tooltip-title"></div>
                         <span id="tooltip-type"></span>
@@ -214,18 +260,120 @@
                         <div id="tooltip-properties"></div>
                     </div>
 
-                    <!-- UI tooltip (for control buttons) -->
                     <div id="ui-tooltip"></div>
                 </div>
 
-                <!-- Data Panel -->
+                <!-- Data & tools panel -->
                 <div id="data-panel" class="collapsed">
+                    <div id="data-panel-resize" title="Drag to resize"></div>
                     <div id="data-panel-header">
-                        <h3>📊 Data Table</h3>
+                        <h3>📊 Data &amp; tools</h3>
                         <span id="data-panel-toggle">▲</span>
                     </div>
-                    <div id="data-panel-tabs"></div>
+                    <div id="data-panel-tabs" role="tablist"></div>
                     <div id="data-panel-content"></div>
+                </div>
+            </div>
+
+            <!-- ── Ontology workbench ─────────────── -->
+            <div id="workbench-wrapper" class="collapsed">
+                <button id="workbench-toggle" class="panel-toggle" title="Show / hide the ontology workbench (Ctrl+K)" type="button"><span class="toggle-glyph">⌕</span><span class="toggle-arrow">◀</span></button>
+                <div id="workbench-resize" class="panel-resize-handle left" title="Drag to resize · double-click: half screen"></div>
+                <div id="workbench-panel">
+                    <div id="workbench-header">
+                        <span class="wb-title">Ontology workbench</span>
+                        <button id="workbench-close" type="button" title="Close" aria-label="Close workbench">✕</button>
+                    </div>
+                    <div id="workbench-tabs" role="tablist">
+                        <button class="wb-tab active" data-tab="find" type="button">🔎 Find</button>
+                        <button class="wb-tab" data-tab="create" type="button">＋ Create</button>
+                        <button class="wb-tab" data-tab="library" type="button">📚 Library</button>
+                        <button class="wb-tab" data-tab="context" type="button">@context</button>
+                    </div>
+                    <div id="workbench-body">
+                        <!-- Find -->
+                        <section class="wb-pane active" data-pane="find">
+                            <div class="wb-search">
+                                <input id="term-search" type="search" placeholder="Find a term… e.g. creator, dataset, prov:was" autocomplete="off">
+                                <div class="chip-row" id="term-kind-chips">
+                                    <button type="button" class="chip active" data-kind="all">All</button>
+                                    <button type="button" class="chip" data-kind="classes">Classes</button>
+                                    <button type="button" class="chip" data-kind="properties">Properties</button>
+                                    <button type="button" class="chip" data-kind="datatypes">Datatypes</button>
+                                    <button type="button" class="chip" data-kind="individuals">Individuals</button>
+                                </div>
+                                <div class="chip-row" id="term-source-chips">
+                                    <button type="button" class="chip source active" data-source="document" title="Terms defined or used in this document">This doc</button>
+                                    <button type="button" class="chip source active" data-source="library" title="Bundled and loaded vocabularies">Library</button>
+                                    <button type="button" class="chip source" data-source="ols" title="EMBL-EBI Ontology Lookup Service (270+ ontologies)">OLS</button>
+                                    <button type="button" class="chip source" data-source="wikidata" title="Wikidata items and properties">Wikidata</button>
+                                </div>
+                                <div id="term-context-banner"></div>
+                            </div>
+                            <div id="term-results"></div>
+                        </section>
+
+                        <!-- Create -->
+                        <section class="wb-pane" data-pane="create">
+                            <form id="create-form" autocomplete="off">
+                                <label class="wb-field">
+                                    <span>What</span>
+                                    <select id="create-kind">
+                                        <option value="C">Class</option>
+                                        <option value="O">Object property (links two things)</option>
+                                        <option value="D">Datatype property (a value: text, number, date…)</option>
+                                        <option value="I">Instance of a class</option>
+                                        <option value="H">Ontology header (metadata)</option>
+                                    </select>
+                                </label>
+                                <label class="wb-field" data-for="C O D I H">
+                                    <span data-for="C O D I">Label</span>
+                                    <input id="create-label" type="text" placeholder="e.g. Research project">
+                                </label>
+                                <div id="create-reuse-hint" data-for="C O D"></div>
+                                <label class="wb-field" data-for="C O D I H">
+                                    <span>Namespace</span>
+                                    <select id="create-namespace"></select>
+                                </label>
+                                <label class="wb-field" data-for="C O D I H">
+                                    <span>Local name <em class="wb-hint">(derived from the label; or the ontology IRI for a header)</em></span>
+                                    <input id="create-local" type="text" placeholder="ResearchProject">
+                                </label>
+                                <div class="wb-iri" data-for="C O D I H">IRI: <code id="create-iri-preview">—</code></div>
+                                <label class="wb-field" data-for="C O D I H">
+                                    <span>Description</span>
+                                    <textarea id="create-comment" rows="2" placeholder="A one-sentence definition (rdfs:comment)"></textarea>
+                                </label>
+                                <div class="wb-field" data-for="C"><span>Subclass of</span><div id="create-super"></div></div>
+                                <div class="wb-field" data-for="C"><span>Equivalent to</span><div id="create-equivalent"></div></div>
+                                <div class="wb-field" data-for="O D"><span>Domain</span><div id="create-domain"></div></div>
+                                <div class="wb-field" data-for="O D"><span>Range</span><div id="create-range"></div></div>
+                                <div class="wb-field" data-for="O D"><span>Sub-property of</span><div id="create-superprop"></div></div>
+                                <div class="wb-field" data-for="O"><span>Inverse of</span><div id="create-inverse"></div></div>
+                                <label class="wb-check" data-for="O D"><input id="create-functional" type="checkbox"> Functional (at most one value)</label>
+                                <div class="wb-field" data-for="I"><span>Type</span><div id="create-type"></div></div>
+                                <div class="wb-field" data-for="I"><span>Properties to include</span><div id="create-suggested-props"></div></div>
+                                <label class="wb-field" data-for="H"><span>Version</span><input id="create-version" class="header-field" type="text" placeholder="0.1.0"></label>
+                                <label class="wb-field" data-for="H"><span>License</span><input id="create-license" class="header-field" type="text" placeholder="https://creativecommons.org/licenses/by/4.0/"></label>
+                                <label class="wb-field" data-for="H"><span>Creator</span><input id="create-creator" class="header-field" type="text" placeholder="Name or ORCID IRI"></label>
+                                <label class="wb-field" data-for="H"><span>Preferred prefix</span><input id="create-prefix" class="header-field" type="text" placeholder="ex"></label>
+                                <div class="wb-actions">
+                                    <button type="submit" class="wb-btn primary">Create</button>
+                                    <button type="button" id="create-reset" class="wb-btn">Reset</button>
+                                </div>
+                            </form>
+                        </section>
+
+                        <!-- Library -->
+                        <section class="wb-pane" data-pane="library">
+                            <div id="library-content"></div>
+                        </section>
+
+                        <!-- @context -->
+                        <section class="wb-pane" data-pane="context">
+                            <div id="context-content"></div>
+                        </section>
+                    </div>
                 </div>
             </div>
 
@@ -233,62 +381,91 @@
     </div>
 
     <!-- ── Info modal ──────────────────────────── -->
-    <div id="info-modal-overlay" class="hidden">
-        <div id="info-modal">
-            <button id="info-close-btn" aria-label="Close modal">✕</button>
+    <div id="info-modal-overlay" class="modal-overlay hidden">
+        <div id="info-modal" class="modal">
+            <button id="info-close-btn" class="modal-close" aria-label="Close modal" type="button">✕</button>
             <h2>JSON-LD Explorer</h2>
-            <p class="modal-subtitle">Interactive linked-data graph visualisation</p>
+            <p class="modal-subtitle">Design ontologies by reuse · edit and validate linked data</p>
             <ul class="feature-list">
-                <li>
-                    <span class="feature-icon">🔍</span>
-                    <div><span class="feature-title">Search</span> — type in the sidebar to find nodes by name or ID.
-                    </div>
-                </li>
-                <li>
-                    <span class="feature-icon">🎨</span>
-                    <div><span class="feature-title">Filters</span> — toggle entity types via the checkboxes.</div>
-                </li>
-                <li>
-                    <span class="feature-icon">🖱️</span>
-                    <div><span class="feature-title">Interact</span> — click a node to see details; hover for a tooltip.
-                    </div>
-                </li>
-                <li>
-                    <span class="feature-icon">✋</span>
-                    <div><span class="feature-title">Drag mode</span> — enable with the ✋ button, then drag nodes.</div>
-                </li>
-                <li>
-                    <span class="feature-icon">📝</span>
-                    <div><span class="feature-title">JSON-LD Editor</span> — open the built-in editor, make changes, and
-                        click <em>Apply</em>.</div>
-                </li>
-                <li>
-                    <span class="feature-icon">📊</span>
-                    <div><span class="feature-title">Data table</span> — expand the bottom panel to browse nodes by
-                        type.</div>
-                </li>
-                <li>
-                    <span class="feature-icon">⊞</span>
-                    <div><span class="feature-title">Layouts</span> — switch between Force Atlas, Circular, Radial, and
-                        Grid.</div>
-                </li>
-                <li>
-                    <span class="feature-icon">⌨️</span>
-                    <div><span class="feature-title">Keyboard</span> — press <span class="kbd">Esc</span> to close
-                        modals.</div>
-                </li>
+                <li><span class="feature-icon">📂</span><div><span class="feature-title">Open anything</span> — JSON-LD, Turtle, N-Triples, N-Quads, TriG or a <code>.rete</code> file (menu, drag &amp; drop, or <code>?src=URL</code>).</div></li>
+                <li><span class="feature-icon">🔎</span><div><span class="feature-title">Find terms</span> — <span class="kbd">Ctrl</span>+<span class="kbd">K</span> searches this document, 15 bundled vocabularies, any vocabulary you load, OLS and Wikidata.</div></li>
+                <li><span class="feature-icon">＋</span><div><span class="feature-title">Create</span> — classes, properties and instances; similar existing terms are suggested so you reuse before you mint.</div></li>
+                <li><span class="feature-icon">⌨️</span><div><span class="feature-title">Autocomplete</span> — <span class="kbd">Ctrl</span>+<span class="kbd">Space</span> in the editor; missing prefixes are added for you.</div></li>
+                <li><span class="feature-icon">🧬</span><div><span class="feature-title">Schema view</span> — the class model: subclasses, domain → range, links observed in the data, and SHACL shapes on their target classes.</div></li>
+                <li><span class="feature-icon">▭</span><div><span class="feature-title">Box diagram</span> — nodes as cards with their values, joined by right-angled links (a UML-style class diagram in the schema view). Drag to pan, wheel to zoom, drag cards to move them.</div></li>
+                <li><span class="feature-icon">🐢</span><div><span class="feature-title">Turtle view</span> — switch the source editor between JSON-LD and Turtle; drag its edge to resize, or ⇔ for half screen.</div></li>
+                <li><span class="feature-icon">⚠</span><div><span class="feature-title">Problems</span> — invalid IRIs, keys that vanish in RDF, undefined prefixes, misspelled vocabulary terms, with one-click fixes.</div></li>
+                <li><span class="feature-icon">⬡</span><div><span class="feature-title">rete</span> — SPARQL and SHACL in the browser, export to <code>.rete</code> (with a Dataset Card), Turtle or N-Triples. <a href="https://github.com/caviri/rete" target="_blank" rel="noopener noreferrer">github.com/caviri/rete</a></div></li>
+                <li><span class="feature-icon">↩</span><div><span class="feature-title">Undo</span> — every edit from the workbench is undoable with <span class="kbd">Ctrl</span>+<span class="kbd">Z</span> in the editor; your work is autosaved in this browser.</div></li>
             </ul>
-            <button id="info-dismiss-btn">Got it!</button>
+            <button id="info-dismiss-btn" class="modal-primary" type="button">Got it!</button>
         </div>
     </div>
+
+    <!-- ── Open URL modal ──────────────────────── -->
+    <div id="url-modal-overlay" class="modal-overlay hidden">
+        <form id="url-modal-form" class="modal small">
+            <h2>Open from URL</h2>
+            <p class="modal-subtitle">JSON-LD, Turtle, N-Triples or .rete. The server must allow cross-origin requests.</p>
+            <input id="url-modal-input" class="wb-input" type="url" placeholder="https://example.org/data.jsonld" required>
+            <div class="wb-actions">
+                <button type="submit" class="wb-btn primary">Open</button>
+                <button type="button" id="url-modal-cancel" class="wb-btn">Cancel</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- ── .rete export modal ──────────────────── -->
+    <div id="rete-modal-overlay" class="modal-overlay hidden">
+        <form id="rete-modal-form" class="modal">
+            <h2>Export as .rete</h2>
+            <p class="modal-subtitle">A single-file RDF graph you can host anywhere and query with SPARQL — no database server. Built in your browser by <a href="https://github.com/caviri/rete" target="_blank" rel="noopener noreferrer">rete</a>.</p>
+            <label class="wb-check"><input id="card-include" type="checkbox" checked> Embed a Dataset Card (title, licence, creators…)</label>
+            <div class="modal-grid">
+                <label class="wb-field"><span>Title</span><input id="card-title" type="text"></label>
+                <label class="wb-field"><span>Version</span><input id="card-version" type="text" placeholder="1.0.0"></label>
+                <label class="wb-field wide"><span>Description <em class="wb-hint">(Markdown)</em></span><textarea id="card-description" rows="3"></textarea></label>
+                <label class="wb-field"><span>License</span><input id="card-license" type="text" list="license-list" placeholder="CC-BY-4.0"></label>
+                <label class="wb-field"><span>Source</span><input id="card-source" type="text" placeholder="https://…"></label>
+                <label class="wb-field"><span>Creator</span><input id="card-creator" type="text" placeholder="Name"></label>
+                <label class="wb-field"><span>Creator ORCID</span><input id="card-orcid" type="text" placeholder="0000-0000-0000-0000"></label>
+                <label class="wb-field wide"><span>Keywords <em class="wb-hint">(comma-separated)</em></span><input id="card-keywords" type="text" placeholder="ontology, research"></label>
+            </div>
+            <datalist id="license-list">
+                <option value="CC0-1.0"></option>
+                <option value="CC-BY-4.0"></option>
+                <option value="CC-BY-SA-4.0"></option>
+                <option value="ODbL-1.0"></option>
+                <option value="MIT"></option>
+                <option value="Apache-2.0"></option>
+            </datalist>
+            <div id="rete-modal-result"></div>
+            <div class="wb-actions">
+                <button type="submit" id="rete-modal-build" class="wb-btn primary">Build &amp; download</button>
+                <button type="button" id="rete-modal-cancel" class="wb-btn">Close</button>
+            </div>
+        </form>
+    </div>
+
+    <div id="drop-overlay"><div>Drop a JSON-LD, Turtle, N-Triples or .rete file to open it</div></div>
+    <div id="toast" role="status" aria-live="polite"></div>
 
     <!-- ── Scripts (order matters) ─────────────── -->
     <script src="js/theme.js"></script>
     <script src="js/config.js"></script>
+    <script src="js/jsonld.js"></script>
     <script src="js/graph.js"></script>
     <script src="js/layouts.js"></script>
+    <script src="js/panels.js"></script>
     <script src="js/editor.js"></script>
     <script src="js/ui.js"></script>
+    <script src="js/vocab.js"></script>
+    <script src="js/rete.js"></script>
+    <script src="js/lint.js"></script>
+    <script src="js/ontology.js"></script>
+    <script src="js/tools.js"></script>
+    <script src="js/io.js"></script>
+    <script src="js/diagram.js"></script>
     <script src="js/app.js"></script>
 
 </body>
