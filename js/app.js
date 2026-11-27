@@ -270,12 +270,12 @@
         }, 800);
     }
 
-    function buildGraphData() {
+    function buildGraphData(viewOverride) {
         const describeIri = iri => {
             const t = vocab.describe(iri);
             return t ? { label: t.label, comment: t.comment, vocab: t.vocabTitle } : null;
         };
-        if (state.view === "schema") return buildSchemaGraphData(state.model, { describeIri });
+        if ((viewOverride || state.view) === "schema") return buildSchemaGraphData(state.model, { describeIri });
         return buildGraphDataFromModel(state.model, state.legacyValidation, {
             showExternal: state.showExternal,
             showTypeLinks: state.showTypeLinks,
@@ -831,6 +831,32 @@
         notify(`Opened ${triples.length} constructed triples. Ctrl+Z in the editor returns to the previous document.`, "success");
     }
 
+    /** The diagram as Mermaid text for a view (default: the current one). */
+    function mermaidText(view) {
+        if (!state.model) return null;
+        const data = !view || view === state.view ? state.graphData : buildGraphData(view);
+        return diagram.toMermaid({ data, title: state.fileName });
+    }
+
+    /** Download the diagram as .mmd, or as Markdown with a mermaid block (.md). */
+    function exportMermaid(format = "mmd", view) {
+        const text = mermaidText(view);
+        if (!text) { notify("Nothing to export: the diagram is empty.", "warning"); return null; }
+        const base = state.fileName.replace(/\.(jsonld|json|ttl|nt|nq|rete)$/i, "");
+        const v = view || state.view;
+        const name = `${base}-${v === "schema" ? "schema" : "graph"}`;
+        if (format === "md") {
+            const fence = "```";
+            const md = `# ${state.fileName} — ${v === "schema" ? "schema" : "graph"}\n\n${fence}mermaid\n${text}${fence}\n`;
+            download(md, `${name}.md`, "text/markdown");
+            notify(`Downloaded ${name}.md — GitHub and many Markdown viewers render the diagram.`, "success");
+            return `${name}.md`;
+        }
+        download(text, `${name}.mmd`, "text/plain");
+        notify(`Downloaded ${name}.mmd — open it in mermaid.live or any Mermaid renderer.`, "success");
+        return `${name}.mmd`;
+    }
+
     function download(data, fileName, mime) {
         editor.downloadText(data instanceof Blob ? data : new Blob([data], { type: `${mime || "application/octet-stream"};charset=utf-8` }), fileName, mime);
     }
@@ -929,13 +955,15 @@
         hasNode: id => graph.hasNode(id),
         selectNode: (id, opts = {}) => {
             if (!graph.hasNode(id)) return;
-            ui.selectNode(id);
+            ui.selectNode(id, { additive: Boolean(opts.additive) });
+            if (opts.additive) return;
             if (opts.focus !== false) {
                 ui.focusNode(id);
                 if (diagram && diagram.isActive()) diagram.focusOn(id);
             }
         },
         clearSelection: () => ui.clearSelection(),
+        getSelectedNodes: () => ui.getSelectedNodes(),
         getGraphData: () => state.graphData,
         revealInEditor: id => {
             editor.openJsonldEditor(sigmaInstance, null, null);
@@ -959,15 +987,33 @@
         loadConstructResult,
         download,
         mergeDocument,
+        mermaidText,
+        exportMermaid,
+        getEditorFormat: () => editor.getFormat(),
+        getProblems: () => state.problems,
+        setDiagram: on => setDiagram(on),
+        isDiagram: () => Boolean(diagram && diagram.isActive()),
     };
 
     const tools = createTools(app);
-    ui.setToolTabs(tools.tabs);
     workbench = createWorkbench(app);
     const io = createIO(app);
     diagram = createDiagram(app, graph);
-    ui.onSelectionChange(id => diagram.onSelection(id));
+    app.tools = tools;
+    app.io = io;
+    ui.onSelectionChange((id, ids) => diagram.onSelection(id, ids));
     ui.onFiltersChange(() => { if (diagram.isActive()) diagram.render({ keepView: true }); });
+
+    // Tools for in-browser AI agents (WebMCP): see js/webmcp.js.
+    const agents = createAgentTools(app);
+    ui.setToolTabs(tools.tabs.concat([agents.tab]));
+
+    function setDiagram(on) {
+        if (on === diagram.isActive()) return;
+        document.getElementById("toggle-diagram").classList.toggle("active", on);
+        diagram.setActive(on);
+        updateViewLabel();
+    }
 
     // ── Node actions (details panel) ─────────
     ui.setNodeActions((nodeId, attrs) => {
@@ -1121,11 +1167,9 @@
 
     // ── Controls ─────────────────────────────
     document.getElementById("toggle-schema").addEventListener("click", () => setView(state.view === "schema" ? "instances" : "schema"));
-    document.getElementById("toggle-diagram").addEventListener("click", e => {
+    document.getElementById("toggle-diagram").addEventListener("click", () => {
         const on = !diagram.isActive();
-        e.currentTarget.classList.toggle("active", on);
-        diagram.setActive(on);
-        updateViewLabel();
+        setDiagram(on);
         if (on) notify("Box diagram: drag the background to pan, the wheel to zoom, a card to move it; double-click a card for its source.", "info");
     });
     // In diagram mode the zoom buttons drive the diagram instead of the network view.
@@ -1242,6 +1286,9 @@
     vocab.loadBuiltin().then(ok => { if (ok) relint(); });
     vocab.onChange(() => { /* document terms refresh happens on apply */ });
 
+    // Offer the editor's tools to in-browser AI agents once a document is loaded.
+    agents.register();
+
     // Expose for debugging in the console.
-    window.jsonldEditor = { app, state, vocab, Rete, JsonLd, sigma: sigmaInstance, graph };
+    window.jsonldEditor = { app, state, vocab, Rete, JsonLd, sigma: sigmaInstance, graph, agents };
 })();

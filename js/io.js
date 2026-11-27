@@ -233,6 +233,8 @@ function createIO(app) {
         try { JSON.parse(text); } catch (err) { app.notify("Fix the JSON syntax errors before exporting.", "error"); return; }
         if (kind === "jsonld") { app.download(text, `${baseName()}.jsonld`, "application/ld+json"); return; }
         if (kind === "ontology") { exportOntologyModule(); return; }
+        if (kind === "mermaid") { app.exportMermaid("mmd"); return; }
+        if (kind === "mermaid-md") { app.exportMermaid("md"); return; }
         if (kind === "rete") { openReteDialog(); return; }
         try {
             app.notify(Rete.getState() === "ready" ? "Converting…" : "Loading the rete engine…", "info");
@@ -244,23 +246,32 @@ function createIO(app) {
         }
     }
 
-    /** Only the ontology: owl:Ontology, classes, properties, datatypes, individuals declared as such. */
-    function exportOntologyModule() {
+    /**
+     * Only the ontology: owl:Ontology, classes, properties, datatypes and
+     * individuals declared as such. Returns { text, count } or null.
+     */
+    function ontologyModuleText() {
         let doc;
-        try { doc = JSON.parse(app.getText()); } catch (_) { return; }
+        try { doc = JSON.parse(app.getText()); } catch (_) { return null; }
         const model = app.getModel();
         const TERM_TYPES = new Set(Object.entries(ONTOLOGY_TYPE_STYLE).filter(([, s]) => s.kind !== "shape").map(([iri]) => iri));
         const keep = new Set();
         model.nodes.forEach(node => { if (node.types.some(t => TERM_TYPES.has(t))) keep.add(node.id); });
-        if (!keep.size) { app.notify("No ontology terms (owl:Class, owl:ObjectProperty, …) in this document.", "warning"); return; }
+        if (!keep.size) return null;
         const { graph } = JsonLd.ensureGraphArray(JsonLd.clone(doc));
         const ctx = model.context;
         const out = graph.filter(item => item && typeof item === "object" && typeof item["@id"] === "string" && keep.has(JsonLd.expandIri(ctx, item["@id"], { documentRelative: true })));
         const result = {};
         if (!Array.isArray(doc) && doc["@context"] !== undefined) result["@context"] = doc["@context"];
         result["@graph"] = out;
-        app.download(JSON.stringify(result, null, 2) + "\n", `${baseName()}-ontology.jsonld`, "application/ld+json");
-        app.notify(`Exported ${out.length} ontology terms — share this file so others can load it as a vocabulary.`, "success");
+        return { text: JSON.stringify(result, null, 2) + "\n", count: out.length };
+    }
+
+    function exportOntologyModule() {
+        const out = ontologyModuleText();
+        if (!out) { app.notify("No ontology terms (owl:Class, owl:ObjectProperty, …) in this document.", "warning"); return; }
+        app.download(out.text, `${baseName()}-ontology.jsonld`, "application/ld+json");
+        app.notify(`Exported ${out.count} ontology terms — share this file so others can load it as a vocabulary.`, "success");
     }
 
     // ── .rete dialog with Dataset Card ────────
@@ -350,5 +361,5 @@ function createIO(app) {
         }
     });
 
-    return { openFile, openUrl, newDocument, importRdf };
+    return { openFile, openUrl, newDocument, importRdf, ontologyModuleText, baseName };
 }

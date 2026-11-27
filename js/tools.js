@@ -411,10 +411,34 @@ function createTools(app) {
                 : `Does not conform: ${report.results.length} result${report.results.length === 1 ? "" : "s"} (${violations} violation${violations === 1 ? "" : "s"}) on ${new Set(report.results.map(r => r.focusNode)).size} node(s).`;
             shaclResults.appendChild(head);
             if (report.results.length) shaclResults.appendChild(shaclTable(report.results, model));
+            const short = v => (v ? JsonLd.compactIri(model.context, String(v).replace(/^<|>$/g, "")) : null);
+            return {
+                conforms: report.conforms,
+                focusNodesChecked: report.targets.size,
+                results: report.results.map(r => ({
+                    focusNode: short(r.focusNode),
+                    path: short(r.resultPath),
+                    constraint: JsonLd.localName(r.sourceConstraintComponent || "").replace(/ConstraintComponent$/, ""),
+                    severity: JsonLd.localName(r.resultSeverity || ""),
+                    value: r.valueNode || null,
+                    message: Array.isArray(r.resultMessage) ? r.resultMessage.join("; ") : (r.resultMessage || null),
+                })),
+            };
         } catch (err) {
             shaclResults.innerHTML = "";
             shaclResults.appendChild(el("p", "tool-error", err.message || String(err)));
+            return { error: err.message || String(err) };
         }
+    }
+
+    /** Validate programmatically (used by agent tools): optional shapes text and source. */
+    async function validate(opts = {}) {
+        if (typeof opts.shapes === "string" && opts.shapes.trim()) shaclEditor.setValue(opts.shapes);
+        if (opts.source && shapesSource) {
+            shapesSource.value = opts.source;
+            shapesSource.dataset.touched = "1";
+        }
+        return runShacl();
     }
 
     function shaclTable(results, model) {
@@ -551,5 +575,8 @@ function createTools(app) {
         setProblems,
         getProblems: () => problems,
         generateShapes,
+        validate,
+        getShapesText: () => shaclEditor.getValue(),
+        setShapesText: text => shaclEditor.setValue(text),
     };
 }

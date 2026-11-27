@@ -180,6 +180,22 @@ const RETE_CONFIG = {
     maxImportTriples: 20000,
 };
 
+// ── WebMCP (tools for in-browser AI agents) ──
+// https://webmachinelearning.github.io/webmcp/ — the editor registers its tools on
+// document.modelContext when the browser provides it (Chrome: origin trial, or
+// chrome://flags/#enable-webmcp-testing). The MCP-B bridge is opt-in, loaded only
+// when the user switches it on in the Agents tab.
+const WEBMCP_CONFIG = {
+    // Origin-trial token for the deployed origin (e.g. https://<user>.github.io).
+    // Register at https://developer.chrome.com/origintrials/ ("WebMCP") and paste it here.
+    originTrialToken: "",
+    mcpbScriptUrl: "https://cdn.jsdelivr.net/npm/@mcp-b/global@6.2.0/dist/index.iife.js",
+    mcpbExtension: "https://chromewebstore.google.com/detail/mcp-b-extension/daohopfhkdelnpemnhlekblhnikhdhfa",
+    docs: "https://developer.chrome.com/docs/ai/webmcp",
+    // Largest text a tool returns in one call (characters).
+    maxTextChars: 60000,
+};
+
 // Where the ontology designer mints new terms when the document has no @vocab.
 const DEFAULT_NAMESPACE = "https://example.org/ontology#";
 

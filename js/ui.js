@@ -26,7 +26,8 @@ function safeHref(value) {
  * @returns {object} UI API
  */
 function createUI(graph, sigmaInstance, layoutManager, editorModule) {
-    let selectedNode = null;
+    let selectedNode = null;          // primary selection (details panel, editor)
+    let selectedSet = new Set();      // all selected nodes (Ctrl/⌘+click adds)
     let hoveredNode = null;
     let highlightedNodes = new Set();
     let highlightedEdges = new Set();
@@ -41,7 +42,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
     let nodeActionsProvider = () => [];
     const selectionListeners = new Set();
     const filterListeners = new Set();
-    const emitSelection = () => selectionListeners.forEach(fn => { try { fn(selectedNode); } catch (_) { /* ignore */ } });
+    const emitSelection = () => selectionListeners.forEach(fn => { try { fn(selectedNode, [...selectedSet]); } catch (_) { /* ignore */ } });
 
     // Drag state
     let draggedNode = null;
@@ -240,20 +241,22 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
         const n = new Set();
         const e = new Set();
         neighbourhood(nodeId, n, e);
-        if (combineWithSelection && selectedNode && graph.hasNode(selectedNode)) neighbourhood(selectedNode, n, e);
+        if (combineWithSelection) selectedSet.forEach(id => { if (graph.hasNode(id)) neighbourhood(id, n, e); });
         paint(n, e);
     }
 
     function restoreSelectionHighlight() {
-        if (!selectedNode || !graph.hasNode(selectedNode)) return;
+        const ids = [...selectedSet].filter(id => graph.hasNode(id));
+        if (!ids.length) return;
         highlightedNodes = new Set();
         highlightedEdges = new Set();
-        neighbourhood(selectedNode, highlightedNodes, highlightedEdges);
+        ids.forEach(id => neighbourhood(id, highlightedNodes, highlightedEdges));
         paint(highlightedNodes, highlightedEdges);
     }
 
     function resetHighlight() {
         selectedNode = null;
+        selectedSet = new Set();
         highlightedNodes.clear();
         highlightedEdges.clear();
         graph.forEachNode((id, attrs) => {
@@ -417,10 +420,61 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
         editorModule.setNodeEditButtonState(null, graph);
     }
 
-    function selectNode(nodeId) {
+    /** Details for several selected nodes: a clickable list. */
+    function showMultiDetails(ids) {
+        document.getElementById("details-placeholder").style.display = "none";
+        document.getElementById("node-details").classList.add("active");
+        document.getElementById("node-title").textContent = `${ids.length} nodes selected`;
+        const typeSpan = document.getElementById("node-type");
+        typeSpan.textContent = "Ctrl/⌘+click adds or removes";
+        typeSpan.style.background = "";
+        typeSpan.style.color = "";
+        nodeActions.querySelectorAll(".node-action-btn.dynamic").forEach(b => b.remove());
+        const clear = document.createElement("button");
+        clear.type = "button";
+        clear.className = "node-action-btn dynamic";
+        clear.textContent = "Clear selection";
+        clear.addEventListener("click", () => { resetHighlight(); hideNodeDetails(); clearTableSelection(); });
+        nodeActions.appendChild(clear);
+        const propsDiv = document.getElementById("node-properties");
+        propsDiv.innerHTML = "";
+        ids.forEach(id => {
+            const a = graph.getNodeAttributes(id);
+            const row = document.createElement("button");
+            row.type = "button";
+            row.className = "multi-row";
+            row.innerHTML = `<span class="search-result-dot" style="background: ${escapeHtml(a.originalColor)}"></span><span class="search-result-label"></span><span class="search-result-type"></span>`;
+            row.querySelector(".search-result-label").textContent = a.label;
+            row.querySelector(".search-result-type").textContent = a.nodeType;
+            row.title = id;
+            row.addEventListener("click", () => { selectNode(id); focusNode(id); });
+            propsDiv.appendChild(row);
+        });
+    }
+
+    function selectNode(nodeId, opts = {}) {
         if (!graph.hasNode(nodeId)) return false;
+        if (opts.additive && selectedSet.size) {
+            const next = new Set(selectedSet);
+            if (next.has(nodeId)) next.delete(nodeId); else next.add(nodeId);
+            if (!next.size) { resetHighlight(); hideNodeDetails(); clearTableSelection(); return true; }
+            selectedSet = next;
+            selectedNode = next.has(nodeId) ? nodeId : [...next][next.size - 1];
+            highlightedNodes = new Set();
+            highlightedEdges = new Set();
+            next.forEach(id => neighbourhood(id, highlightedNodes, highlightedEdges));
+            paint(highlightedNodes, highlightedEdges);
+            if (next.size === 1) showNodeDetails(selectedNode); else showMultiDetails([...next]);
+            editorModule.setNodeEditButtonState(selectedNode, graph);
+            if (editorModule.isJsonldEditorOpen()) editorModule.highlightSourceForNode(selectedNode, false, true);
+            clearTableSelection();
+            next.forEach(id => highlightTableRow(id, true));
+            emitSelection();
+            return true;
+        }
         resetHighlight();
         selectedNode = nodeId;
+        selectedSet = new Set([nodeId]);
         highlightedNodes = new Set();
         highlightedEdges = new Set();
         neighbourhood(nodeId, highlightedNodes, highlightedEdges);
@@ -500,8 +554,9 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
         return html;
     }
 
-    function highlightTableRow(nodeId) {
-        document.querySelectorAll(".data-table tr.selected").forEach(row => row.classList.remove("selected"));
+    /** Mark a table row as selected; `keep` leaves other selected rows (multi-select). */
+    function highlightTableRow(nodeId, keep = false) {
+        if (!keep) document.querySelectorAll(".data-table tr.selected").forEach(row => row.classList.remove("selected"));
         const rows = document.querySelectorAll(".data-table tr[data-node-id]");
         for (const row of rows) {
             if (row.dataset.nodeId === nodeId) {
@@ -531,8 +586,9 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
         dataPanelContent.classList.remove("tool-content");
         dataPanelContent.innerHTML = type === "__validation__" ? buildValidationTable() : buildTable(type);
         dataPanelContent.querySelectorAll(".data-table tr[data-node-id]").forEach(row => {
-            row.addEventListener("click", () => {
+            row.addEventListener("click", e => {
                 const nodeId = row.dataset.nodeId;
+                if (e.ctrlKey || e.metaKey) { selectNode(nodeId, { additive: true }); return; }
                 selectNode(nodeId);
                 focusNode(nodeId);
                 highlightTableRow(nodeId);
@@ -776,8 +832,17 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
         });
 
         // Sigma node/edge events
-        sigmaInstance.on("clickNode", ({ node }) => {
-            selectNode(node);
+        // Two quick clicks are reported as a double click: treat it as a click
+        // (so fast Ctrl/⌘+clicks on two nodes both count), without the zoom.
+        sigmaInstance.on("doubleClickNode", ({ node, event }) => {
+            if (event && event.preventSigmaDefault) event.preventSigmaDefault();
+            const original = event && event.original;
+            const additive = Boolean(original && (original.ctrlKey || original.metaKey));
+            if (additive || selectedNode !== node) selectNode(node, { additive });
+        });
+        sigmaInstance.on("clickNode", ({ node, event }) => {
+            const original = event && event.original;
+            selectNode(node, { additive: Boolean(original && (original.ctrlKey || original.metaKey)) });
             if (tableSyncEnabled && dataPanel.classList.contains("collapsed") && !toolTabs.some(t => t.id === activeDataTab)) {
                 dataPanel.classList.remove("collapsed");
             }
@@ -947,6 +1012,7 @@ function createUI(graph, sigmaInstance, layoutManager, editorModule) {
         refreshActiveTool,
         getGraphData: () => graphData,
         getSelectedNode: () => selectedNode,
+        getSelectedNodes: () => [...selectedSet],
         setNodeActions: (provider, handler) => { nodeActionsProvider = provider; nodeActionHandler = handler; },
         onSelectionChange: fn => selectionListeners.add(fn),
         onFiltersChange: fn => filterListeners.add(fn),

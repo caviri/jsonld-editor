@@ -114,6 +114,8 @@
                                     <button type="button" data-action="export" data-arg="ttl"><strong>Turtle (.ttl)</strong><span>via rete</span></button>
                                     <button type="button" data-action="export" data-arg="nt"><strong>N-Triples (.nt)</strong><span>via rete</span></button>
                                     <button type="button" data-action="export" data-arg="nq"><strong>N-Quads (.nq)</strong><span>via rete</span></button>
+                                    <button type="button" data-action="export" data-arg="mermaid"><strong>Mermaid diagram (.mmd)</strong><span>class diagram (schema view) or flowchart</span></button>
+                                    <button type="button" data-action="export" data-arg="mermaid-md"><strong>Markdown + Mermaid (.md)</strong><span>renders on GitHub</span></button>
                                     <button type="button" data-action="export" data-arg="rete"><strong>.rete file…</strong><span>queryable single-file graph + Dataset Card</span></button>
                                 </div>
                             </div>
@@ -396,6 +398,7 @@
                 <li><span class="feature-icon">🐢</span><div><span class="feature-title">Turtle view</span> — switch the source editor between JSON-LD and Turtle; drag its edge to resize, or ⇔ for half screen.</div></li>
                 <li><span class="feature-icon">⚠</span><div><span class="feature-title">Problems</span> — invalid IRIs, keys that vanish in RDF, undefined prefixes, misspelled vocabulary terms, with one-click fixes.</div></li>
                 <li><span class="feature-icon">⬡</span><div><span class="feature-title">rete</span> — SPARQL and SHACL in the browser, export to <code>.rete</code> (with a Dataset Card), Turtle or N-Triples. <a href="https://github.com/caviri/rete" target="_blank" rel="noopener noreferrer">github.com/caviri/rete</a></div></li>
+                <li><span class="feature-icon">🤖</span><div><span class="feature-title">Agents (WebMCP)</span> — AI agents in your browser can use the editor's tools for you (read, search terms, create, query, validate, export). See the 🤖 Agents tab for status, permissions and an activity log.</div></li>
                 <li><span class="feature-icon">↩</span><div><span class="feature-title">Undo</span> — every edit from the workbench is undoable with <span class="kbd">Ctrl</span>+<span class="kbd">Z</span> in the editor; your work is autosaved in this browser.</div></li>
             </ul>
             <button id="info-dismiss-btn" class="modal-primary" type="button">Got it!</button>
@@ -466,6 +469,7 @@
     <script src="js/tools.js"></script>
     <script src="js/io.js"></script>
     <script src="js/diagram.js"></script>
+    <script src="js/webmcp.js"></script>
     <script src="js/app.js"></script>
 
 </body>
