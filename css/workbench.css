@@ -2093,3 +2093,142 @@ body.resizing-x .CodeMirror {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+
+
+/* ── Agents activity log ──────────────────── */
+
+.agents-row {
+    cursor: pointer;
+}
+
+.agents-row.open td {
+    background: var(--accent-bg);
+}
+
+.agents-row.previous td {
+    opacity: 0.6;
+}
+
+.agents-badge.life {
+    background: var(--accent-bg);
+    color: var(--accent-text);
+    margin-left: 0;
+}
+
+.agents-badge.earlier {
+    background: var(--bg-hover);
+    color: var(--text-muted);
+}
+
+.agents-table td.num {
+    text-align: right;
+}
+
+.agents-detail-row td {
+    white-space: normal;
+    background: var(--bg-surface-alt);
+    cursor: default;
+}
+
+.agents-detail {
+    padding: 6px 4px 10px;
+}
+
+.agents-detail-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 6px 0 4px;
+}
+
+.agents-detail-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.agents-io {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.agents-pre {
+    margin: 0;
+    max-height: 220px;
+    overflow: auto;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-default);
+    background: var(--bg-surface);
+    font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--text-primary);
+}
+
+.agents-changes {
+    margin-bottom: 6px;
+}
+
+.agents-change-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
+    margin: 3px 0;
+}
+
+.agents-change-label {
+    font-size: 11px;
+    font-weight: 700;
+    margin-right: 4px;
+}
+
+.agents-change-label.added { color: var(--success); }
+.agents-change-label.changed { color: var(--warning); }
+.agents-change-label.removed { color: var(--error); }
+
+.agents-chip {
+    border: 1px solid var(--border-default);
+    border-radius: 999px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    padding: 1px 8px;
+    cursor: pointer;
+}
+
+.agents-chip:hover {
+    background: var(--accent-bg);
+    color: var(--accent-text);
+}
+
+
+/* Log table: fixed columns, long text truncated (details show everything). */
+.agents-table {
+    width: 100%;
+    table-layout: fixed;
+}
+
+.agents-table th:nth-child(1) { width: 96px; }
+.agents-table th:nth-child(2) { width: 210px; }
+.agents-table th:nth-child(4) { width: 150px; }
+.agents-table th:nth-child(5) { width: 56px; }
+
+.agents-table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.agents-io > div {
+    min-width: 0;
+}
+
+/* Graph controls: wrap into a second column instead of covering the bottom panel. */
+#controls {
+    flex-wrap: wrap-reverse;
+    max-height: calc(100% - 36px);
+    align-content: flex-start;
+}

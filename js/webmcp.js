@@ -33,7 +33,7 @@ function createAgentTools(app) {
     const KIND_NAMES = { C: "class", O: "object property", D: "datatype property", A: "annotation property", P: "property", T: "datatype", I: "individual" };
     const MAX_TEXT = WEBMCP_CONFIG.maxTextChars || 60000;
 
-    const settings = Object.assign({ expose: true, allowEdits: true, bridge: false }, readSettings());
+    const settings = Object.assign({ expose: true, allowEdits: true, bridge: false, consoleLog: true }, readSettings());
     let controller = null;
     let registered = 0;
     let status = "idle";
@@ -1078,24 +1078,133 @@ function createAgentTools(app) {
         },
     ];
 
-    // ── Registration ──────────────────────────
+    // ── Activity log ──────────────────────────
+    // Every tool call (input, result, duration, document changes) and every
+    // lifecycle event (registration, bridge, permissions, WebMCP events) is
+    // logged here, mirrored to the browser console as "[WebMCP] …", kept in
+    // this browser across reloads, and downloadable as JSON.
 
-    function summarizeInput(input) {
-        const s = JSON.stringify(input || {});
-        return s.length > 160 ? s.slice(0, 157) + "…" : s;
+    const LOG_KEY = "jsonld-editor:agents-log";
+    const LOG_MAX = 300;
+    let seq = 0;
+    let filter = "all";
+    const expanded = new Set();
+    let registering = false;
+    let lastFailed = false;
+
+    function restoreLog() {
+        try {
+            const saved = JSON.parse(localStorage.getItem(LOG_KEY) || "[]");
+            saved.forEach(e => { e.time = new Date(e.time); e.previous = true; log.push(e); });
+        } catch (_) { /* corrupt or blocked storage */ }
+        seq = log.reduce((m, e) => Math.max(m, e.id || 0), 0);
     }
 
-    function record(def, input, result, started) {
-        calls += 1;
-        const okFlag = result && result.ok !== false;
-        const summary = okFlag
-            ? (def.summarize ? def.summarize(input || {}, result || {}) : def.name.replace(/_/g, " "))
-            : `${def.name} failed: ${result.error}`;
-        log.unshift({ time: new Date(), name: def.name, write: Boolean(def.write), input: summarizeInput(input), ok: okFlag, summary, ms: Date.now() - started });
-        if (log.length > 100) log.length = 100;
-        if (def.write) app.notify(`🤖 Agent ${summary}${okFlag ? " — Ctrl+Z in the editor undoes it" : ""}`, okFlag ? "info" : "warning");
+    function persistLog() {
+        try { localStorage.setItem(LOG_KEY, JSON.stringify(log.slice(0, 200))); } catch (_) { /* storage full or blocked */ }
+    }
+
+    /** A JSON-safe, size-bounded copy of a value for the log. */
+    function shrink(value) {
+        try {
+            return JSON.parse(JSON.stringify(value === undefined ? null : value, (k, v) => {
+                if (typeof v === "string" && v.length > 2000) return `${v.slice(0, 2000)}… (${v.length} characters)`;
+                if (Array.isArray(v) && v.length > 50) return v.slice(0, 50).concat([`… ${v.length - 50} more`]);
+                return v;
+            }));
+        } catch (_) {
+            return String(value);
+        }
+    }
+
+    /** Signature of every described node, to see what an edit changed. */
+    function snapshot() {
+        const m = app.getModel();
+        const map = new Map();
+        if (!m) return map;
+        m.nodes.forEach(node => {
+            if (node.definitions === 0) return;
+            const props = [...node.props.entries()].map(([p, vs]) => [p, vs.map(v => (v.kind === "iri" ? `<${v.iri}>` : v.kind === "list" ? `list:${v.items.length}` : `${v.value}|${v.datatype || ""}|${v.lang || ""}`))]);
+            map.set(node.id, JSON.stringify([node.types, props]));
+        });
+        return map;
+    }
+
+    function diffSnapshots(before, after) {
+        const pick = iri => ({ iri, id: compactNode(iri) });
+        const added = [];
+        const removed = [];
+        const changed = [];
+        after.forEach((sig, id) => {
+            if (!before.has(id)) added.push(pick(id));
+            else if (before.get(id) !== sig) changed.push(pick(id));
+        });
+        before.forEach((_, id) => { if (!after.has(id)) removed.push(pick(id)); });
+        return { added, removed, changed };
+    }
+
+    function changeSummary(c) {
+        if (!c) return "";
+        const parts = [];
+        if (c.added.length) parts.push(`+${c.added.length} added`);
+        if (c.changed.length) parts.push(`~${c.changed.length} changed`);
+        if (c.removed.length) parts.push(`−${c.removed.length} removed`);
+        return parts.join(" · ") || "no node changed";
+    }
+
+    function consoleOut(entry) {
+        if (!settings.consoleLog) return;
+        const style = "color:#7c3aed;font-weight:bold";
+        if (entry.kind === "lifecycle") {
+            const fn = entry.level === "error" ? console.warn : console.info;
+            if (entry.detail !== null && entry.detail !== undefined) fn(`%c[WebMCP]%c ${entry.message}`, style, "", entry.detail);
+            else fn(`%c[WebMCP]%c ${entry.message}`, style, "");
+            return;
+        }
+        console.groupCollapsed(`%c[WebMCP]%c ${entry.ok ? "✓" : "✗"} ${entry.name} · ${entry.ms} ms${entry.changes ? ` · ${changeSummary(entry.changes)}` : ""} — ${entry.summary}`, style, entry.ok ? "" : "color:#dc2626");
+        console.log("input", entry.input);
+        console.log("result", entry.result);
+        if (entry.changes) console.log("changes", entry.changes);
+        console.groupEnd();
+    }
+
+    function addEntry(entry) {
+        entry.id = ++seq;
+        entry.time = entry.time || new Date();
+        log.unshift(entry);
+        if (log.length > LOG_MAX) log.length = LOG_MAX;
+        persistLog();
+        consoleOut(entry);
         updateBadge();
         renderLog();
+    }
+
+    function lifecycle(message, detail = null, level = "info") {
+        addEntry({ kind: "lifecycle", name: "lifecycle", message, detail: shrink(detail), ok: level !== "error", level });
+    }
+
+    // ── Registration ──────────────────────────
+
+    function record(def, input, result, started, changes) {
+        calls += 1;
+        const okFlag = Boolean(result) && result.ok !== false;
+        lastFailed = !okFlag;
+        const summary = okFlag
+            ? (def.summarize ? def.summarize(input || {}, result || {}) : def.name.replace(/_/g, " "))
+            : `${def.name} failed: ${result ? result.error : "no result"}`;
+        addEntry({
+            kind: "call",
+            name: def.name,
+            write: Boolean(def.write),
+            readOnly: Boolean(def.annotations && def.annotations.readOnlyHint),
+            input: shrink(input || {}),
+            result: shrink(result),
+            ok: okFlag,
+            summary,
+            ms: Date.now() - started,
+            changes,
+        });
+        if (def.write) app.notify(`🤖 Agent ${summary}${changes && okFlag ? ` (${changeSummary(changes)})` : ""}${okFlag ? " — Ctrl+Z in the editor undoes it" : ""}`, okFlag ? "info" : "warning");
     }
 
     function toWebMcpTool(def) {
@@ -1108,63 +1217,101 @@ function createAgentTools(app) {
             execute: async (input) => {
                 const started = Date.now();
                 let result;
+                let changes = null;
                 if (def.write && !settings.allowEdits) {
                     result = fail("The user has not allowed agents to edit the document (🤖 Agents tab → Allow edits). Read-only tools still work.");
                 } else if (!app.getModel()) {
                     result = fail("No document is loaded yet.");
                 } else {
+                    const before = def.write ? snapshot() : null;
                     try {
                         result = await def.run(input || {});
                     } catch (err) {
                         result = fail(err && err.message ? err.message : String(err));
                     }
+                    if (before) changes = diffSnapshots(before, snapshot());
                 }
-                record(def, input, result, started);
+                record(def, input, result, started, changes);
                 return result;
             },
         };
     }
 
-    function unregister() {
+    function unregister(reason) {
+        const had = registered;
         if (controller) controller.abort();
         controller = null;
         registered = 0;
+        if (had && reason) lifecycle(`Unregistered ${had} tools (${reason}).`);
     }
 
     function loadBridge() {
         if (bridgeLoaded || document.querySelector("script[data-mcpb]")) return Promise.resolve();
+        lifecycle(`Loading the MCP-B bridge from ${WEBMCP_CONFIG.mcpbScriptUrl}`);
         return new Promise((resolve, reject) => {
             const s = document.createElement("script");
             s.src = WEBMCP_CONFIG.mcpbScriptUrl;
             s.crossOrigin = "anonymous";
             s.dataset.mcpb = "1";
-            s.onload = () => { bridgeLoaded = true; resolve(); };
+            s.onload = () => { bridgeLoaded = true; lifecycle("MCP-B bridge loaded: document.modelContext is now the bridge."); resolve(); };
             s.onerror = () => reject(new Error(`Could not load the MCP-B bridge from ${WEBMCP_CONFIG.mcpbScriptUrl}`));
             document.head.appendChild(s);
         });
     }
 
+    // Browser-side WebMCP events: tool list changes and declarative activations.
+    const watched = new WeakSet();
+    let toolchangeTimer = null;
+    function watch(mc) {
+        if (!mc || watched.has(mc) || typeof mc.addEventListener !== "function") return;
+        watched.add(mc);
+        mc.addEventListener("toolchange", () => {
+            if (registering) return;
+            clearTimeout(toolchangeTimer);
+            toolchangeTimer = setTimeout(async () => {
+                let count = null;
+                try { count = (await mc.getTools()).length; } catch (_) { /* not available */ }
+                lifecycle(`The browser reports a change in the page's tools${count !== null ? ` (${count} registered now)` : ""}.`);
+            }, 300);
+        });
+        // The browser also announces each activation; calls to our own tools are
+        // already logged with their input and result, so only note other tools.
+        const ours = new Set(TOOLS.map(t => t.name));
+        mc.addEventListener("toolactivated", e => { if (!ours.has(e.toolName)) lifecycle(`An agent activated the tool "${e.toolName}".`); });
+        mc.addEventListener("toolcancel", e => lifecycle(`An agent cancelled the tool "${e.toolName}" before it finished.`));
+    }
+
     async function register() {
-        unregister();
-        if (!settings.expose) { status = "disabled"; statusDetail = ""; renderStatus(); return; }
+        unregister("re-registering");
+        if (!settings.expose) {
+            status = "disabled";
+            statusDetail = "";
+            renderStatus();
+            lifecycle("Tools are not exposed to agents (switched off in the Agents tab).");
+            return;
+        }
         if (!window.isSecureContext) {
             status = "insecure";
             statusDetail = "WebMCP needs a secure page: https:// or http://localhost.";
             renderStatus();
+            lifecycle(statusDetail, { origin: location.origin }, "error");
             return;
         }
         if (settings.bridge && !bridgeLoaded) {
-            try { await loadBridge(); } catch (err) { status = "error"; statusDetail = err.message; renderStatus(); return; }
+            try { await loadBridge(); } catch (err) { status = "error"; statusDetail = err.message; renderStatus(); lifecycle(err.message, null, "error"); return; }
         }
         const mc = document.modelContext;
         if (!mc || typeof mc.registerTool !== "function") {
             status = "unsupported";
             statusDetail = "";
             renderStatus();
+            lifecycle("This browser does not offer WebMCP (no document.modelContext). Enable chrome://flags/#enable-webmcp-testing in Chrome, use the origin trial, or connect the MCP-B extension.", { userAgent: navigator.userAgent });
             return;
         }
         controller = new AbortController();
         const errors = [];
+        registering = true;
+        const t0 = performance.now();
         for (const def of TOOLS) {
             try {
                 await mc.registerTool(toWebMcpTool(def), { signal: controller.signal });
@@ -1173,9 +1320,16 @@ function createAgentTools(app) {
                 errors.push(`${def.name}: ${err && err.message ? err.message : err}`);
             }
         }
+        registering = false;
+        watch(mc);
         status = registered ? "registered" : "error";
         statusDetail = errors.join(" · ");
         renderStatus();
+        lifecycle(
+            `Registered ${registered} of ${TOOLS.length} tools with ${bridgeLoaded ? "the MCP-B bridge" : "native WebMCP"} in ${Math.round(performance.now() - t0)} ms. Edits are ${settings.allowEdits ? "allowed" : "blocked"}.`,
+            errors.length ? { failed: errors } : { tools: TOOLS.map(t => t.name) },
+            registered ? "info" : "error",
+        );
     }
 
     // ── Agents tab ────────────────────────────
@@ -1210,7 +1364,6 @@ function createAgentTools(app) {
 
     function renderStatus() {
         statusBox.innerHTML = "";
-        const native = typeof document.modelContext !== "undefined" && !bridgeLoaded;
         let cls = "warn";
         let text;
         if (status === "registered") {
@@ -1229,20 +1382,27 @@ function createAgentTools(app) {
         } else {
             text = "Starting…";
         }
-        const box = el("div", `rdf-check ${cls}`, text);
-        statusBox.appendChild(box);
+        statusBox.appendChild(el("div", `rdf-check ${cls}`, text));
         if (status === "registered" && statusDetail) statusBox.appendChild(el("p", "wb-note", `Some tools failed: ${statusDetail}`));
-        if (native === false && status !== "registered" && status !== "disabled") { /* hint already in text */ }
     }
 
     function renderLeft() {
         left.innerHTML = "";
         left.appendChild(el("div", "wb-card-title", "Agents (WebMCP)"));
-        left.appendChild(el("p", "wb-note", "AI agents in your browser can use this editor for you: read the document, find terms to reuse, design the ontology, add instances, query, validate and export. Every call is listed here; every edit can be undone with Ctrl+Z."));
+        left.appendChild(el("p", "wb-note", "AI agents in your browser can use this editor for you: read the document, find terms to reuse, design the ontology, add instances, query, validate and export. Every call is logged on the right (and in the browser console); every edit can be undone with Ctrl+Z."));
         left.appendChild(statusBox);
-        left.appendChild(toggle("Expose tools to agents", "Register the tools with document.modelContext.", "expose", () => register()));
-        left.appendChild(toggle("Allow agents to edit the document", "Off: agents can only read, search, query and validate.", "allowEdits", () => renderStatus()));
-        left.appendChild(toggle("Connect the MCP-B extension", "Loads the @mcp-b/global bridge (jsDelivr). Adds WebMCP where the browser lacks it and lets the MCP-B extension reach these tools. Reload to disconnect.", "bridge", on => { if (on) register(); else app.notify("Reload the page to disconnect the MCP-B bridge.", "info"); }));
+        left.appendChild(toggle("Expose tools to agents", "Register the tools with document.modelContext.", "expose", on => {
+            if (on) register();
+            else { unregister("switched off by the user"); status = "disabled"; renderStatus(); }
+        }));
+        left.appendChild(toggle("Allow agents to edit the document", "Off: agents can only read, search, query and validate.", "allowEdits", on => {
+            renderStatus();
+            lifecycle(on ? "Edits by agents are now allowed." : "Edits by agents are now blocked; read-only tools still work.");
+        }));
+        left.appendChild(toggle("Connect the MCP-B extension", "Loads the @mcp-b/global bridge (jsDelivr). Adds WebMCP where the browser lacks it and lets the MCP-B extension reach these tools. Reload to disconnect.", "bridge", on => {
+            if (on) register();
+            else { lifecycle("MCP-B bridge switched off; it disconnects on the next reload."); app.notify("Reload the page to disconnect the MCP-B bridge.", "info"); }
+        }));
         const links = el("p", "wb-note");
         links.innerHTML = `<a href="${WEBMCP_CONFIG.docs}" target="_blank" rel="noopener noreferrer">About WebMCP</a> · <a href="${WEBMCP_CONFIG.mcpbExtension}" target="_blank" rel="noopener noreferrer">MCP-B extension</a>`;
         left.appendChild(links);
@@ -1261,40 +1421,160 @@ function createAgentTools(app) {
         renderStatus();
     }
 
+    const FILTERS = {
+        all: () => true,
+        calls: e => e.kind === "call",
+        edits: e => e.kind === "call" && e.write,
+        errors: e => !e.ok,
+        lifecycle: e => e.kind === "lifecycle",
+    };
+
+    function selectNodes(items) {
+        const ids = items.map(i => i.iri).filter(iri => app.hasNode(iri));
+        if (!ids.length) { app.notify("Those nodes are not shown in the current view.", "info"); return; }
+        app.selectNode(ids[0]);
+        ids.slice(1).forEach(iri => app.selectNode(iri, { additive: true }));
+    }
+
+    function nodeChips(container, label, items, cls) {
+        if (!items || !items.length) return;
+        const row = el("div", "agents-change-row");
+        row.appendChild(el("span", `agents-change-label ${cls}`, `${label} (${items.length})`));
+        items.slice(0, 40).forEach(item => {
+            const chip = el("button", "agents-chip", item.id || item.iri);
+            chip.type = "button";
+            chip.title = item.iri;
+            chip.addEventListener("click", e => {
+                e.stopPropagation();
+                if (app.hasNode(item.iri)) app.selectNode(item.iri);
+                else app.notify(`${item.id || item.iri} is not shown in the current view.`, "info");
+            });
+            row.appendChild(chip);
+        });
+        if (items.length > 40) row.appendChild(el("span", "muted", `… ${items.length - 40} more`));
+        container.appendChild(row);
+    }
+
+    function detailRow(entry) {
+        const tr = el("tr", "agents-detail-row");
+        const td = el("td");
+        td.colSpan = 5;
+        const box = el("div", "agents-detail");
+        if (entry.kind === "lifecycle") {
+            box.appendChild(el("div", "agents-detail-title", entry.message));
+            if (entry.detail !== null && entry.detail !== undefined) box.appendChild(el("pre", "agents-pre", JSON.stringify(entry.detail, null, 2)));
+        } else {
+            box.appendChild(el("div", "agents-detail-meta", `${entry.time.toLocaleString()} · ${entry.ms} ms · ${entry.write ? "edit" : entry.readOnly ? "read-only" : "library"} tool${entry.previous ? " · earlier session" : ""}`));
+            if (entry.changes) {
+                const changes = el("div", "agents-changes");
+                changes.appendChild(el("div", "agents-detail-title", `Document changes: ${changeSummary(entry.changes)}`));
+                nodeChips(changes, "Added", entry.changes.added, "added");
+                nodeChips(changes, "Changed", entry.changes.changed, "changed");
+                nodeChips(changes, "Removed", entry.changes.removed, "removed");
+                const touched = entry.changes.added.concat(entry.changes.changed);
+                if (touched.length) {
+                    const sel = el("button", "tool-btn", "Select added & changed nodes");
+                    sel.type = "button";
+                    sel.addEventListener("click", e => { e.stopPropagation(); selectNodes(touched); });
+                    changes.appendChild(sel);
+                }
+                box.appendChild(changes);
+            }
+            const cols = el("div", "agents-io");
+            const input = el("div");
+            input.appendChild(el("div", "agents-detail-title", "Input"));
+            input.appendChild(el("pre", "agents-pre", JSON.stringify(entry.input, null, 2)));
+            const result = el("div");
+            result.appendChild(el("div", "agents-detail-title", "Result"));
+            result.appendChild(el("pre", "agents-pre", JSON.stringify(entry.result, null, 2)));
+            cols.appendChild(input);
+            cols.appendChild(result);
+            box.appendChild(cols);
+        }
+        td.appendChild(box);
+        tr.appendChild(td);
+        return tr;
+    }
+
+    function downloadLog() {
+        const payload = {
+            exported: new Date().toISOString(),
+            document: app.getFileName(),
+            status: { status, registered, bridge: bridgeLoaded, settings },
+            entries: log.map(e => Object.assign({}, e, { time: e.time.toISOString() })),
+        };
+        const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-");
+        app.download(JSON.stringify(payload, null, 2), `webmcp-log-${stamp}.json`, "application/json");
+    }
+
     function renderLog() {
         logBox.innerHTML = "";
+        const session = log.filter(e => !e.previous && e.kind === "call");
+        const edits = session.filter(e => e.write && e.ok).length;
+        const errors = session.filter(e => !e.ok).length;
         const bar = el("div", "tool-bar");
-        bar.appendChild(el("span", "tool-summary", calls ? `${calls} tool call${calls === 1 ? "" : "s"} this session` : "No agent activity yet."));
-        if (log.length) {
-            const clear = el("button", "tool-btn", "Clear");
-            clear.type = "button";
-            clear.addEventListener("click", () => { log.length = 0; renderLog(); });
-            bar.appendChild(clear);
-        }
+        bar.appendChild(el("span", "tool-summary", session.length
+            ? `${session.length} call${session.length === 1 ? "" : "s"} this session · ${edits} edit${edits === 1 ? "" : "s"} · ${errors} error${errors === 1 ? "" : "s"}`
+            : "No tool calls yet this session."));
+        const select = el("select", "tool-select");
+        [["all", "Everything"], ["calls", "Tool calls"], ["edits", "Edits"], ["errors", "Errors"], ["lifecycle", "Lifecycle"]].forEach(([v, t]) => select.appendChild(new Option(t, v)));
+        select.value = filter;
+        select.addEventListener("change", () => { filter = select.value; renderLog(); });
+        bar.appendChild(select);
+        const consoleToggle = el("label", "tool-check");
+        const cb = el("input");
+        cb.type = "checkbox";
+        cb.checked = Boolean(settings.consoleLog);
+        cb.addEventListener("change", () => { settings.consoleLog = cb.checked; saveSettings(); if (cb.checked) lifecycle("Logging to the browser console is on."); });
+        consoleToggle.appendChild(cb);
+        consoleToggle.appendChild(document.createTextNode(" Browser console"));
+        consoleToggle.title = "Mirror each entry to the DevTools console as [WebMCP] …";
+        bar.appendChild(consoleToggle);
+        const dl = el("button", "tool-btn", "Download log");
+        dl.type = "button";
+        dl.disabled = !log.length;
+        dl.addEventListener("click", downloadLog);
+        bar.appendChild(dl);
+        const clear = el("button", "tool-btn", "Clear");
+        clear.type = "button";
+        clear.disabled = !log.length;
+        clear.addEventListener("click", () => { log.length = 0; expanded.clear(); lastFailed = false; persistLog(); renderLog(); updateBadge(); });
+        bar.appendChild(clear);
         logBox.appendChild(bar);
-        if (!log.length) {
-            logBox.appendChild(el("p", "panel-empty", "When an agent calls a tool, it appears here with its input and result."));
+
+        const shown = log.filter(FILTERS[filter] || FILTERS.all);
+        if (!shown.length) {
+            logBox.appendChild(el("p", "panel-empty", log.length ? "Nothing matches this filter." : "When an agent calls a tool, it appears here with its input, its result and what it changed in the document. Click an entry for details."));
             return;
         }
         const table = el("table", "data-table agents-table");
         const thead = el("thead");
         const hr = el("tr");
-        ["Time", "Tool", "Result", "Input"].forEach(h => hr.appendChild(el("th", "", h)));
+        ["Time", "Event", "Result", "Changes", "ms"].forEach(h => hr.appendChild(el("th", "", h)));
         thead.appendChild(hr);
         table.appendChild(thead);
         const tbody = el("tbody");
-        log.forEach(entry => {
-            const tr = el("tr", entry.ok ? "" : "row-fail");
+        shown.forEach(entry => {
+            const tr = el("tr", `agents-row${entry.ok ? "" : " row-fail"}${entry.previous ? " previous" : ""}${expanded.has(entry.id) ? " open" : ""}`);
             tr.appendChild(el("td", "muted", entry.time.toLocaleTimeString()));
-            const tool = el("td");
-            tool.appendChild(el("code", "", entry.name));
-            if (entry.write) tool.appendChild(el("span", "agents-badge write", "edit"));
-            tr.appendChild(tool);
-            tr.appendChild(el("td", entry.ok ? "" : "cell-fail", entry.summary));
-            const input = el("td", "mono", entry.input);
-            input.title = entry.input;
-            tr.appendChild(input);
+            const ev = el("td");
+            if (entry.kind === "lifecycle") ev.appendChild(el("span", "agents-badge life", "lifecycle"));
+            else {
+                ev.appendChild(el("code", "", entry.name));
+                ev.appendChild(el("span", `agents-badge ${entry.write ? "write" : "read"}`, entry.write ? "edit" : "read"));
+            }
+            if (entry.previous) ev.appendChild(el("span", "agents-badge earlier", "earlier"));
+            tr.appendChild(ev);
+            tr.appendChild(el("td", entry.ok ? "" : "cell-fail", entry.kind === "lifecycle" ? entry.message : entry.summary));
+            tr.appendChild(el("td", "muted", entry.changes ? changeSummary(entry.changes) : ""));
+            tr.appendChild(el("td", "muted num", entry.ms !== undefined ? String(entry.ms) : ""));
+            tr.title = "Click for details";
+            tr.addEventListener("click", () => {
+                if (expanded.has(entry.id)) expanded.delete(entry.id); else expanded.add(entry.id);
+                renderLog();
+            });
             tbody.appendChild(tr);
+            if (expanded.has(entry.id)) tbody.appendChild(detailRow(entry));
         });
         table.appendChild(tbody);
         const wrap = el("div", "data-table-wrapper static");
@@ -1303,8 +1583,11 @@ function createAgentTools(app) {
     }
 
     function updateBadge() {
-        app.ui.updateToolBadge("__agents__", calls || null, null);
+        const session = log.filter(e => !e.previous && e.kind === "call").length;
+        app.ui.updateToolBadge("__agents__", session || null, lastFailed ? "warning" : null);
     }
+
+    restoreLog();
 
     renderLeft();
     renderLog();
@@ -1321,5 +1604,7 @@ function createAgentTools(app) {
             return toWebMcpTool(def).execute(input || {});
         },
         getStatus: () => ({ status, registered, bridge: bridgeLoaded, settings: Object.assign({}, settings), detail: statusDetail }),
+        getLog: () => log.map(e => Object.assign({}, e)),
+        downloadLog,
     };
 }
