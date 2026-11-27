@@ -1170,7 +1170,12 @@
     document.getElementById("toggle-diagram").addEventListener("click", () => {
         const on = !diagram.isActive();
         setDiagram(on);
-        if (on) notify("Box diagram: drag the background to pan, the wheel to zoom, a card to move it; double-click a card for its source.", "info");
+        if (on) {
+            const touch = window.matchMedia("(pointer: coarse)").matches;
+            notify(touch
+                ? "Box diagram: drag the background to pan, pinch to zoom, drag a card to move it; double-tap a card for its source."
+                : "Box diagram: drag the background to pan, the wheel to zoom, a card to move it; double-click a card for its source.", "info");
+        }
     });
     // In diagram mode the zoom buttons drive the diagram instead of the network view.
     [["zoom-in", () => diagram.zoomIn()], ["zoom-out", () => diagram.zoomOut()], ["zoom-fit", () => diagram.fit()], ["reset-view", () => diagram.render()]].forEach(([id, fn]) => {
@@ -1212,7 +1217,7 @@
         sigmaInstance.refresh();
     });
 
-    // Resizable data panel.
+    // Resizable data panel (pointer events: mouse, touch and pen).
     (function wireDataPanelResize() {
         const panel = document.getElementById("data-panel");
         const handle = document.getElementById("data-panel-resize");
@@ -1223,20 +1228,74 @@
             panel.style.setProperty("--data-panel-height", `${h}px`);
         };
         const up = () => {
-            document.removeEventListener("mousemove", move);
-            document.removeEventListener("mouseup", up);
+            handle.removeEventListener("pointermove", move);
+            handle.removeEventListener("pointerup", up);
+            handle.removeEventListener("pointercancel", up);
             document.body.classList.remove("resizing");
             sigmaInstance.refresh();
         };
-        handle.addEventListener("mousedown", e => {
-            if (panel.classList.contains("collapsed")) return;
+        handle.addEventListener("pointerdown", e => {
+            if (panel.classList.contains("collapsed") || (e.pointerType === "mouse" && e.button !== 0)) return;
             startY = e.clientY;
             startH = panel.getBoundingClientRect().height;
+            try { handle.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
             document.body.classList.add("resizing");
-            document.addEventListener("mousemove", move);
-            document.addEventListener("mouseup", up);
+            handle.addEventListener("pointermove", move);
+            handle.addEventListener("pointerup", up);
+            handle.addEventListener("pointercancel", up);
             e.preventDefault();
         });
+    })();
+
+    // ── Phones: drawers open one at a time, a scrim closes them ──
+    const phoneQuery = window.matchMedia("(max-width: 760px)");
+    (function wireMobileDrawers() {
+        const sidebar = document.getElementById("sidebar");
+        const sidebarToggle = document.getElementById("sidebar-toggle");
+        const editorWrap = document.getElementById("jsonld-editor-wrapper");
+        const wbWrap = document.getElementById("workbench-wrapper");
+        const scrim = document.getElementById("mobile-scrim");
+        const isOpen = {
+            sidebar: () => !sidebar.classList.contains("collapsed"),
+            editor: () => !editorWrap.classList.contains("collapsed"),
+            workbench: () => !wbWrap.classList.contains("collapsed"),
+        };
+        const close = {
+            sidebar: () => { if (isOpen.sidebar()) sidebarToggle.click(); },
+            editor: () => { if (isOpen.editor()) editor.closeJsonldEditor(sigmaInstance); },
+            workbench: () => { if (isOpen.workbench()) workbench.close(); },
+        };
+        function sync(changed) {
+            if (!phoneQuery.matches) { scrim.classList.remove("visible"); return; }
+            if (changed && isOpen[changed]()) Object.keys(close).forEach(k => { if (k !== changed) close[k](); });
+            scrim.classList.toggle("visible", isOpen.sidebar() || isOpen.editor() || isOpen.workbench());
+        }
+        [[sidebar, "sidebar"], [editorWrap, "editor"], [wbWrap, "workbench"]].forEach(([elem, key]) => {
+            new MutationObserver(() => sync(key)).observe(elem, { attributes: true, attributeFilter: ["class"] });
+        });
+        scrim.addEventListener("click", () => Object.values(close).forEach(fn => fn()));
+        phoneQuery.addEventListener("change", () => sync());
+        sync();
+    })();
+
+    // ── Phones: the selected node in a small bar (the sidebar is a drawer) ──
+    (function wireMobileSelection() {
+        const bar = document.getElementById("mobile-selection");
+        ui.onSelectionChange((id, ids) => {
+            if (!phoneQuery.matches || !id || !graph.hasNode(id)) { bar.classList.remove("visible"); return; }
+            const a = graph.getNodeAttributes(id);
+            const many = ids && ids.length > 1;
+            bar.querySelector(".ms-dot").style.background = a.originalColor;
+            bar.querySelector(".ms-label").textContent = many ? `${ids.length} nodes selected` : a.label;
+            bar.querySelector(".ms-type").textContent = many ? "" : a.nodeType;
+            bar.classList.add("visible");
+        });
+        document.getElementById("mobile-selection-details").addEventListener("click", () => {
+            const sidebar = document.getElementById("sidebar");
+            if (sidebar.classList.contains("collapsed")) document.getElementById("sidebar-toggle").click();
+            setTimeout(() => document.getElementById("details-container").scrollIntoView({ behavior: "smooth", block: "start" }), 340);
+        });
+        document.getElementById("mobile-selection-close").addEventListener("click", () => ui.clearSelection());
     })();
 
     // ── Initial document ─────────────────────
@@ -1247,6 +1306,10 @@
     const src = params.get("src") || params.get("url");
 
     ui.init({ view: "instances", nodes: [], edges: [], metadata: { nodeCount: 0, edgeCount: 0, validation: { total: 0 } } });
+    // On a phone, start with the graph in view (the toggle is wired by ui.init).
+    if (phoneQuery.matches && !document.getElementById("sidebar").classList.contains("collapsed")) {
+        document.getElementById("sidebar-toggle").click();
+    }
     editor.initJsonldEditor("", () => ui.getSelectedNode());
 
     if (src) {

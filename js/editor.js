@@ -685,8 +685,11 @@ function createEditor() {
             CodeMirror.defineMode("jsonld-highlight", config =>
                 CodeMirror.overlayMode(CodeMirror.getMode(config, { name: "javascript", jsonld: true }), jsonldOverlay, true));
         }
+        const coarsePointer = window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
         cm = CodeMirror.fromTextArea(jsonldTextarea, {
             mode: jsonldModeSpec(),
+            // Phones and tablets: contenteditable works with on-screen keyboards and selection handles.
+            inputStyle: coarsePointer ? "contenteditable" : "textarea",
             lineNumbers: true,
             lineWrapping: false,
             tabSize: 2,

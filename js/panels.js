@@ -61,11 +61,14 @@ function makePanelResizable({ wrapper, handle, cssVar, edge = "right", min = 280
         } catch (_) { /* storage blocked */ }
     }
 
-    handle.addEventListener("mousedown", e => {
-        if (wrapper.classList.contains("collapsed") || e.button !== 0) return;
+    // Pointer events: mouse, touch and pen drag the handle the same way.
+    handle.style.touchAction = "none";
+    handle.addEventListener("pointerdown", e => {
+        if (wrapper.classList.contains("collapsed") || (e.pointerType === "mouse" && e.button !== 0)) return;
         e.preventDefault();
         const startX = e.clientX;
         const startW = wrapper.getBoundingClientRect().width;
+        try { handle.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
         document.body.classList.add("resizing-x");
         wrapper.classList.add("resizing");
         const move = ev => {
@@ -73,15 +76,17 @@ function makePanelResizable({ wrapper, handle, cssVar, edge = "right", min = 280
             setWidth(edge === "right" ? startW + dx : startW - dx, false);
         };
         const up = () => {
-            document.removeEventListener("mousemove", move);
-            document.removeEventListener("mouseup", up);
+            handle.removeEventListener("pointermove", move);
+            handle.removeEventListener("pointerup", up);
+            handle.removeEventListener("pointercancel", up);
             document.body.classList.remove("resizing-x");
             wrapper.classList.remove("resizing");
             setWidth(getWidth(), true);
             if (onResize) onResize();
         };
-        document.addEventListener("mousemove", move);
-        document.addEventListener("mouseup", up);
+        handle.addEventListener("pointermove", move);
+        handle.addEventListener("pointerup", up);
+        handle.addEventListener("pointercancel", up);
     });
     handle.addEventListener("dblclick", () => toggleHalf());
 

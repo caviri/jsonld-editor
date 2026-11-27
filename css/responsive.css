@@ -1,0 +1,458 @@
+/* ==============================================
+   JSON-LD Explorer — scrollbars & phone layout
+   ============================================== */
+
+/* ── Scrollbars ───────────────────────────────
+   Thin, rounded, theme-coloured. Chromium and Safari use the ::-webkit-
+   pseudo-elements (more control); Firefox uses the standard properties.
+   (In Chromium the standard properties would switch the pseudo-elements
+   off, hence the @supports guard.) */
+
+:root {
+    --scrollbar-size: 10px;
+    --scrollbar-thumb: rgba(100, 116, 139, 0.42);
+    --scrollbar-thumb-hover: rgba(59, 130, 246, 0.75);
+    --scrollbar-thumb-active: #2563eb;
+    --scrollbar-track: transparent;
+    --scrollbar-track-hover: rgba(148, 163, 184, 0.12);
+}
+
+[data-theme="dark"] {
+    --scrollbar-thumb: rgba(212, 175, 55, 0.32);
+    --scrollbar-thumb-hover: rgba(230, 196, 75, 0.75);
+    --scrollbar-thumb-active: #e6c44b;
+    --scrollbar-track-hover: rgba(212, 175, 55, 0.06);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+    * {
+        scrollbar-width: thin;
+        scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    }
+}
+
+::-webkit-scrollbar {
+    width: var(--scrollbar-size);
+    height: var(--scrollbar-size);
+}
+
+::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+    border-radius: 999px;
+}
+
+::-webkit-scrollbar-track:hover {
+    background: var(--scrollbar-track-hover);
+}
+
+::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-thumb);
+    border-radius: 999px;
+    /* a transparent border + content-box clip leaves a gap around the thumb */
+    border: 2px solid transparent;
+    background-clip: content-box;
+    min-height: 36px;
+    min-width: 36px;
+    transition: background-color 0.15s;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-thumb:active {
+    background-color: var(--scrollbar-thumb-active);
+}
+
+::-webkit-scrollbar-corner,
+.CodeMirror-scrollbar-filler,
+.CodeMirror-gutter-filler {
+    background: transparent;
+}
+
+::-webkit-scrollbar-button {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+/* Small panes: slimmer bars. */
+.term-picker-dropdown::-webkit-scrollbar,
+.CodeMirror-hints::-webkit-scrollbar,
+.file-menu::-webkit-scrollbar,
+#search-results::-webkit-scrollbar,
+#data-panel-tabs::-webkit-scrollbar {
+    width: 7px;
+    height: 7px;
+}
+
+/* ── Touch ────────────────────────────────── */
+
+/* The diagram and the resize handles handle their own gestures. */
+#diagram-svg,
+#data-panel-resize,
+.panel-resize-handle {
+    touch-action: none;
+}
+
+/* ── Phone-only elements (hidden on larger screens) ── */
+
+#mobile-scrim,
+#mobile-selection {
+    display: none;
+}
+
+/* ── Dynamic viewport height (mobile address bars) ── */
+
+@supports (height: 100dvh) {
+    #app {
+        height: 100dvh;
+    }
+}
+
+/* ── Phones ───────────────────────────────── */
+
+@media (max-width: 760px) {
+    :root {
+        --scrollbar-size: 6px;
+    }
+
+    #marquee-banner {
+        height: 26px;
+        line-height: 26px;
+        font-size: 11px;
+    }
+
+    #marquee-badge {
+        display: none;
+    }
+
+    /* Side panels become full-screen drawers over the graph. */
+    #sidebar-wrapper {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 170;
+    }
+
+    #sidebar {
+        width: min(84vw, 330px);
+        min-width: min(84vw, 330px);
+        box-shadow: var(--shadow-modal);
+    }
+
+    #sidebar.collapsed {
+        box-shadow: none;
+    }
+
+    /* The whole drawer scrolls, so the node details are reachable. */
+    #sidebar:not(.collapsed) {
+        overflow-y: auto;
+    }
+
+    #sidebar .sidebar-section,
+    #details-container {
+        flex: none;
+    }
+
+    #details-container {
+        overflow: visible;
+        padding-bottom: 80px;
+    }
+
+    #data-panel-resize {
+        top: -8px;
+        height: 16px;
+    }
+
+    #sidebar-toggle {
+        left: min(84vw, 330px);
+    }
+
+    #sidebar-toggle.sidebar-collapsed {
+        left: 0;
+    }
+
+    #jsonld-editor-wrapper {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        z-index: 160;
+        --editor-width: 100vw;
+        width: 100vw !important;
+        min-width: 100vw !important;
+        box-shadow: var(--shadow-modal);
+    }
+
+    #jsonld-editor-wrapper.collapsed {
+        width: 0 !important;
+        min-width: 0 !important;
+        box-shadow: none;
+    }
+
+    #jsonld-editor-wrapper:not(.collapsed) #jsonld-editor-toggle {
+        left: auto;
+        right: 0;
+        border-radius: 6px 0 0 6px;
+        border-left: 1px solid var(--border-default);
+        border-right: none;
+    }
+
+    .panel-resize-handle {
+        display: none;
+    }
+
+    #workbench-wrapper:not(.collapsed) {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 100vw;
+        min-width: 100vw;
+        z-index: 165;
+    }
+
+    #workbench-wrapper:not(.collapsed) #workbench-toggle {
+        display: none;
+    }
+
+    #mobile-scrim.visible {
+        display: block;
+        position: absolute;
+        inset: 0;
+        z-index: 150;
+        background: var(--overlay-bg);
+        backdrop-filter: blur(2px);
+    }
+
+    /* Editor header and toolbar wrap. */
+    #jsonld-editor-header {
+        padding: 8px 10px;
+        gap: 6px;
+    }
+
+    .fmt-switch {
+        margin-left: 0;
+    }
+
+    .toolbar-hint {
+        display: none;
+    }
+
+    /* Graph chrome: smaller and out of the way. */
+    #controls {
+        top: 8px;
+        right: 8px;
+        gap: 6px;
+        max-height: calc(100% - 70px);
+    }
+
+    .control-btn {
+        width: 34px;
+        height: 34px;
+        font-size: 15px;
+    }
+
+    #layout-menu {
+        right: 40px;
+    }
+
+    #stats {
+        bottom: 8px;
+        right: 8px;
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+
+    #view-label {
+        top: 10px;
+        left: 30px;
+        font-size: 10px;
+    }
+
+    #diagram-toolbar {
+        top: 28px;
+        left: 28px;
+        max-width: calc(100% - 80px);
+        padding: 4px 6px;
+        gap: 4px;
+    }
+
+    #diagram-toolbar .dt-hint {
+        display: none;
+    }
+
+    #diagram-container {
+        touch-action: none;
+    }
+
+    #tooltip {
+        display: none;
+    }
+
+    /* Bottom panel: a sheet with scrollable tabs and stacked tool panes. */
+    #data-panel {
+        --data-panel-height: 56vh;
+        height: min(var(--data-panel-height), 70vh);
+    }
+
+    #data-panel.collapsed {
+        height: 37px;
+    }
+
+    #data-panel-header {
+        padding: 8px 14px;
+    }
+
+    #data-panel-tabs {
+        padding: 0 8px;
+        scroll-snap-type: x proximity;
+    }
+
+    .data-tab {
+        padding: 9px 10px;
+        scroll-snap-align: start;
+    }
+
+    .tool-root,
+    .agents-root {
+        flex-direction: column;
+    }
+
+    .tool-pane-left,
+    .agents-left {
+        width: 100%;
+        min-width: 0;
+        height: 48%;
+        border-right: none;
+        border-bottom: 1px solid var(--border-default);
+    }
+
+    .agents-left {
+        height: auto;
+        max-height: 45%;
+    }
+
+    .tool-results,
+    .agents-log {
+        flex: 1;
+        min-height: 0;
+    }
+
+    .agents-io {
+        grid-template-columns: 1fr;
+    }
+
+    .agents-table th:nth-child(4),
+    .agents-table td:nth-child(4),
+    .agents-table th:nth-child(5),
+    .agents-table td:nth-child(5) {
+        display: none;
+    }
+
+    .agents-table th:nth-child(2) {
+        width: 150px;
+    }
+
+    /* Menus, modals and toasts fit the screen. */
+    .file-menu {
+        min-width: min(250px, 80vw);
+    }
+
+    .modal {
+        width: calc(100vw - 24px);
+        padding: 20px 16px;
+        max-height: 88dvh;
+    }
+
+    #toast {
+        bottom: 12px;
+        max-width: calc(100vw - 24px);
+        font-size: 12px;
+    }
+
+    /* Bigger touch targets in lists. */
+    .search-result,
+    .filter-item,
+    .term-picker-item,
+    .multi-row {
+        min-height: 36px;
+    }
+
+    .wb-mini-btn,
+    .tool-btn,
+    .dt-btn {
+        padding: 5px 9px;
+    }
+
+    /* Selected node: a small bar instead of the hidden sidebar. */
+    #mobile-selection.visible {
+        display: flex;
+        position: absolute;
+        left: 8px;
+        right: 92px; /* clear of the controls, even when they wrap into two columns */
+        bottom: 44px;
+        z-index: 12;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 12px;
+        background: var(--tooltip-bg);
+        border: 1px solid var(--border-strong);
+        box-shadow: var(--shadow-tooltip);
+        font-size: 13px;
+    }
+
+    #mobile-selection .ms-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    #mobile-selection .ms-text {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--text-heading);
+    }
+
+    #mobile-selection .ms-type {
+        color: var(--text-secondary);
+        font-size: 11px;
+        margin-left: 4px;
+    }
+
+    #mobile-selection button {
+        border: 1px solid var(--border-strong);
+        border-radius: 8px;
+        background: var(--bg-surface-alt);
+        color: var(--text-primary);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 5px 10px;
+        flex-shrink: 0;
+    }
+
+    #mobile-selection button.ms-primary {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: var(--text-on-accent);
+    }
+}
+
+/* Very small phones. */
+@media (max-width: 380px) {
+    #file-bar {
+        flex-wrap: wrap;
+    }
+
+    .doc-bar-actions .sidebar-header-action {
+        padding: 5px 8px;
+    }
+}

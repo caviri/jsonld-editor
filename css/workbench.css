@@ -1959,6 +1959,110 @@ body.resizing-x .CodeMirror {
     stroke-width: 1;
 }
 
+/* Link lists on the cards: OUTPUTS / INPUTS bars */
+
+.d-sec {
+    cursor: pointer;
+}
+
+.d-sec-bg {
+    fill: var(--bg-surface-alt);
+}
+
+.d-sec:hover .d-sec-bg {
+    fill: var(--accent-bg);
+}
+
+.d-sec-title {
+    font: 700 9.5px system-ui, -apple-system, "Segoe UI", sans-serif;
+    letter-spacing: 0.05em;
+    fill: var(--text-secondary);
+}
+
+.d-sec.closed .d-sec-title {
+    fill: var(--text-muted);
+}
+
+.d-sec:hover .d-sec-title {
+    fill: var(--accent-text);
+}
+
+/* Toolbar: ⇄ Links menu */
+
+.dt-menu-wrap {
+    position: relative;
+    display: inline-flex;
+}
+
+.dt-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 20;
+    width: 270px;
+    max-width: calc(100vw - 40px);
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 10px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: 9px;
+    box-shadow: var(--shadow-modal);
+}
+
+.dt-menu[hidden] {
+    display: none;
+}
+
+.dt-check {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-primary);
+    cursor: pointer;
+}
+
+.dt-check input {
+    align-self: center;
+    margin: 0;
+}
+
+.dt-check span {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.dt-menu-sep {
+    height: 1px;
+    background: var(--border-default);
+}
+
+.dt-menu-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.dt-menu-row > span {
+    flex: 1;
+}
+
+.dt-menu-row.off {
+    opacity: 0.55;
+}
+
+.dt-menu-note {
+    margin: 0;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
+
 .d-edge.dim .d-port {
     opacity: 0.2;
 }
@@ -2087,6 +2191,103 @@ body.resizing-x .CodeMirror {
     min-width: 0;
     overflow: auto;
 }
+
+/* Sketch in a chat */
+.agents-sketch {
+    margin: 10px 0 4px;
+    padding: 8px 10px;
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    background: var(--bg-surface-alt);
+    font-size: 12px;
+}
+
+.agents-sketch summary {
+    cursor: pointer;
+    font-weight: 700;
+    color: var(--text-heading);
+}
+
+.agents-sketch-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 6px 0;
+}
+
+.agents-sketch-row a.tool-btn {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+}
+
+.agents-sketch-label {
+    display: block;
+    margin-top: 8px;
+    color: var(--text-secondary);
+}
+
+.agents-sketch-input {
+    display: block;
+    width: 100%;
+    margin-top: 4px;
+    padding: 6px 8px;
+    font: 11.5px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+    color: var(--text-primary);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    resize: vertical;
+}
+
+.agents-sketch-input[hidden] {
+    display: none;
+}
+
+.agents-sketch-plan .rdf-check {
+    margin: 6px 0;
+}
+
+.agents-sketch-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.agents-sketch-list li {
+    padding: 3px 0;
+    border-bottom: 1px solid var(--border-subtle);
+    line-height: 1.45;
+}
+
+.agents-sketch-list .agents-badge {
+    margin: 0 6px 0 0;
+    min-width: 52px;
+    text-align: center;
+}
+
+.agents-sketch-list code {
+    font-size: 11px;
+    color: var(--text-heading);
+}
+
+.agents-sketch-detail {
+    margin-left: 6px;
+    color: var(--text-secondary);
+}
+
+.agents-sketch-similar {
+    display: block;
+    margin-left: 58px;
+    color: var(--accent-text);
+    font-size: 11px;
+}
+
+.agents-badge.sk-create { background: var(--success-bg); color: var(--success-text); }
+.agents-badge.sk-reuse,
+.agents-badge.sk-subclass { background: var(--accent-bg); color: var(--accent-text); }
+.agents-badge.sk-exists { background: var(--bg-hover); color: var(--text-muted); }
+.agents-badge.sk-note { background: var(--warning-bg); color: var(--warning-text); }
 
 .agents-table td.mono {
     max-width: 320px;

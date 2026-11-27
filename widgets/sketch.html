@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ontology sketch</title>
+<!-- Whiteboard for sketching an ontology, shown to the user inside an AI chat
+     (or opened on its own). Boxes are classes, arrows are properties, "is a"
+     arrows are subclasses, lines inside a box are attributes. "Done" gives a
+     SKETCH RESULT text for the chat; the jsonld-editor's apply_sketch tool (or
+     🤖 Agents → Apply a sketch) turns it into owl:Class / owl:*Property terms.
+     Self-contained: no network, no storage, works in sandboxed previews. -->
+<style>
+:root{color-scheme:light;--bg:#f8fafc;--panel:#fff;--ink:#0f172a;--muted:#64748b;--line:#d5dde8;--dot:#cbd5e1;--accent:#2563eb;--on-accent:#fff;--box:#eff6ff;--box-line:#3b82f6;--reuse:#ecfdf5;--reuse-line:#059669;--arrow:#334155;--pen:#7c3aed;--sel:#f59e0b}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#0b1120;--panel:#111827;--ink:#e5e7eb;--muted:#94a3b8;--line:#263244;--dot:#1e293b;--accent:#60a5fa;--on-accent:#0b1120;--box:#13223f;--box-line:#60a5fa;--reuse:#0c2a22;--reuse-line:#34d399;--arrow:#cbd5e1;--pen:#c4b5fd;--sel:#fbbf24}}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font:14px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+#app{display:flex;flex-direction:column;height:100%;min-height:500px}
+header{padding:10px 12px 6px;background:var(--panel)}
+h1{margin:0;font-size:15px}
+#task{margin:2px 0 0;color:var(--muted);font-size:13px}
+#task:empty{display:none}
+nav{display:flex;flex-wrap:wrap;gap:6px;padding:6px 12px 8px;background:var(--panel);border-bottom:1px solid var(--line)}
+button{font:inherit;font-size:13px;min-height:34px;padding:6px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.on,button.go{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+button.go{font-weight:600}
+.grow{flex:1}
+#hint{padding:5px 12px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--line);background:var(--panel)}
+#board{position:relative;flex:1;min-height:340px;overflow:hidden}
+svg{position:absolute;inset:0;width:100%;height:100%;touch-action:none;user-select:none;-webkit-user-select:none;background:radial-gradient(var(--dot) 1px,transparent 1.3px) 0 0/20px 20px}
+.box rect{fill:var(--box);stroke:var(--box-line);stroke-width:1.6}
+.box.reuse rect{fill:var(--reuse);stroke:var(--reuse-line);stroke-dasharray:6 3}
+.box text{fill:var(--ink);font-size:13px}
+.box .name{font-weight:700}
+.box .attr{font-size:12px;fill:var(--muted)}
+.box .src{font-size:10.5px;fill:var(--reuse-line)}
+.box .sep{stroke:var(--box-line);opacity:.45}
+.link .line{stroke:var(--arrow);stroke-width:1.7;fill:none}
+.link .hit{stroke:transparent;stroke-width:16;fill:none}
+.link text{fill:var(--ink);font-size:12px;paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
+.link.isa .line{stroke-dasharray:none}
+.ah{fill:var(--arrow)}
+.isa{fill:var(--bg);stroke:var(--arrow);stroke-width:1.2}
+.ink{stroke:var(--pen);stroke-width:2.4;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.draft{stroke:var(--accent);stroke-width:2;fill:none;stroke-dasharray:5 4;stroke-linecap:round}
+.draft.pen{stroke:var(--pen);stroke-dasharray:none;stroke-width:2.4}
+.sel rect,.sel .line,.ink.sel{stroke:var(--sel)!important;stroke-width:3!important}
+#ed{position:absolute;display:none;z-index:2;min-width:170px;padding:6px 8px;font:13px/1.35 ui-monospace,Consolas,monospace;color:var(--ink);background:var(--panel);border:2px solid var(--accent);border-radius:8px;resize:both;box-shadow:0 8px 24px rgba(0,0,0,.18);outline:none}
+#edhint{position:absolute;display:none;z-index:2;max-width:260px;font-size:11px;color:var(--muted);background:var(--panel);padding:2px 6px;border-radius:6px}
+#out{display:none;padding:10px 12px;background:var(--panel);border-top:1px solid var(--line)}
+#out.show{display:block}
+#result{width:100%;height:110px;font:12px ui-monospace,Consolas,monospace;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px}
+#msg{font-size:12.5px;color:var(--muted);margin:6px 0}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+@media (max-width:520px){nav{gap:4px;padding:6px 8px}button{padding:6px 8px}.label{display:none}}
+</style>
+</head>
+<body>
+<div id="app">
+<header><h1>✏️ Ontology sketch</h1><p id="task"></p></header>
+<nav>
+ <button data-tool="draw" title="Draw (D): a closed loop becomes a box, a line from one box to another becomes an arrow">✏️<span class="label"> Draw</span></button>
+ <button data-tool="box" title="Box (B): drag to draw a class">▭<span class="label"> Box</span></button>
+ <button data-tool="arrow" title="Arrow (A): drag from one box to another">→<span class="label"> Arrow</span></button>
+ <button data-tool="move" title="Move (V): drag boxes, tap to select">✋<span class="label"> Move</span></button>
+ <button data-act="edit" title="Rename the selection (or double-click it)">✎<span class="label"> Edit</span></button>
+ <button data-act="del" title="Delete the selection (Delete)">🗑<span class="label"> Delete</span></button>
+ <button data-act="undo" title="Undo (Ctrl+Z)">↶<span class="label"> Undo</span></button>
+ <button data-act="clear" title="Start over">⟲<span class="label"> Clear</span></button>
+ <span class="grow"></span>
+ <button data-act="done" class="go">✅ Done</button>
+</nav>
+<div id="hint"></div>
+<div id="board">
+ <svg id="svg" aria-label="Whiteboard"><defs>
+  <marker id="m-ah" viewBox="0 0 10 10" refX="9.5" refY="5" markerWidth="9" markerHeight="9" orient="auto"><path class="ah" d="M0,1L10,5L0,9z"/></marker>
+  <marker id="m-isa" viewBox="0 0 12 12" refX="11" refY="6" markerWidth="13" markerHeight="13" orient="auto"><path class="isa" d="M1,1L11,6L1,11z"/></marker>
+ </defs><g id="g-ink"></g><g id="g-links"></g><g id="g-boxes"></g><g id="g-draft"></g></svg>
+ <textarea id="ed" spellcheck="false" aria-label="Text"></textarea><div id="edhint"></div>
+</div>
+<div id="out">
+ <div class="row"><strong>Result</strong><span class="grow"></span><button data-act="copy" class="go">📋 Copy result</button><button data-act="back">Keep drawing</button></div>
+ <p id="msg"></p>
+ <textarea id="result" readonly aria-label="Sketch result"></textarea>
+</div>
+</div>
+<script>
+"use strict";
+const INITIAL = /*SKETCH-INITIAL*/{"task":"","classes":[]}/*SKETCH-END*/;
+const $ = id => document.getElementById(id);
+const svg = $("svg"), G = { ink: $("g-ink"), links: $("g-links"), boxes: $("g-boxes"), draft: $("g-draft") };
+const SVGNS = "http://www.w3.org/2000/svg";
+const TYPES = /^(string|text|int|integer|number|decimal|float|double|bool|boolean|date|datetime|time|uri|url|iri|anyuri|year|langstring|xsd:\w+)$/i;
+const ISA = /^(is[ -]?an?|a kind of|kind of|type of|subclass( of)?|sub[ -]?class[ -]?of|extends|inherits( from)?|specializes|rdfs:subClassOf)$/i;
+const TERM = /^([A-Za-z][\w.-]*:[^\s:]\S*|https?:\/\/\S+)$/;
+const HINTS = {
+  draw: "Draw freely: a closed loop becomes a box (a class), a line from one box to another becomes an arrow (a property). Other strokes stay as notes.",
+  box: "Drag to draw a box for each class. Type the class name, then one attribute per line, e.g. “title: string”.",
+  arrow: "Drag from one box to another, then type the property name — or “is a” for a subclass.",
+  move: "Drag boxes to move them. Tap a box or an arrow to select it; double-tap to rename.",
+};
+let S = { boxes: [], links: [], ink: [] }, seq = 0, tool = "draw", sel = null, drag = null, editing = null, lastTap = null;
+const past = [];
+
+function el(tag, attrs, parent) { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+function text(parent, x, y, cls, s, anchor) { const t = el("text", { x, y, class: cls, "text-anchor": anchor || "start" }, parent); t.textContent = s; return t; }
+function snap() { past.push(JSON.stringify(S)); if (past.length > 60) past.shift(); }
+function nextId(p) { seq += 1; return p + seq; }
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+const r0 = v => Math.round(v);
+
+function parseBox(b) {
+  const lines = String(b.text || "").split("\n").map(s => s.trim()).filter(Boolean);
+  const attrs = lines.slice(1).map(l => {
+    const m = /^(.*?\S)\s*:\s*(\S+)$/.exec(l);
+    return m && TYPES.test(m[2]) ? { label: m[1], datatype: m[2] } : { label: l, datatype: "string" };
+  });
+  return { name: lines[0] || "", attrs };
+}
+function dims(b) {
+  const p = parseBox(b);
+  const name = p.name || "Untitled";
+  const w = Math.max(b.w, 26 + Math.max(name.length * 7.8, ...p.attrs.map(a => (a.label.length + a.datatype.length + 2) * 6.8), b.reuse ? (b.reuse.length + 2) * 6.3 : 0));
+  const h = Math.max(b.h, 36 + p.attrs.length * 17 + (b.reuse ? 14 : 0));
+  return { x: b.x, y: b.y, w, h, p, name };
+}
+function boxAt(x, y, pad) {
+  pad = pad || 0;
+  for (let i = S.boxes.length - 1; i >= 0; i -= 1) {
+    const d = dims(S.boxes[i]);
+    if (x >= d.x - pad && x <= d.x + d.w + pad && y >= d.y - pad && y <= d.y + d.h + pad) return S.boxes[i];
+  }
+  return null;
+}
+function anchor(b, d, tx, ty) {
+  const cx = d.x + d.w / 2, cy = d.y + d.h / 2, dx = tx - cx, dy = ty - cy;
+  if (!dx && !dy) return [cx, cy];
+  const s = b.shape === "ellipse"
+    ? 1 / Math.sqrt((dx / (d.w / 2)) ** 2 + (dy / (d.h / 2)) ** 2)
+    : Math.min(Math.abs(d.w / 2 / (dx || 1e-9)), Math.abs(d.h / 2 / (dy || 1e-9)));
+  return [cx + dx * s, cy + dy * s];
+}
+/** Geometry of a link: path, label position. Parallel links bend apart. */
+function linkGeo(l) {
+  const A = S.boxes.find(b => b.id === l.from), B = S.boxes.find(b => b.id === l.to);
+  if (!A || !B) return null;
+  const da = dims(A), db = dims(B);
+  if (A === B) {
+    const sx = da.x + da.w * 0.72, sy = da.y, ex = da.x + da.w, ey = da.y + Math.min(da.h * 0.4, 26);
+    return { d: `M${sx},${sy} C${sx},${sy - 48} ${ex + 48},${ey} ${ex},${ey}`, lx: ex + 14, ly: sy - 22, anchor: "start" };
+  }
+  const key = [l.from, l.to].sort().join("|");
+  const same = S.links.filter(o => [o.from, o.to].sort().join("|") === key && o.from !== o.to);
+  const i = same.indexOf(l), n = same.length;
+  const flip = l.from > l.to ? -1 : 1;
+  const off = (i - (n - 1) / 2) * 34 * flip;
+  const ca = [da.x + da.w / 2, da.y + da.h / 2], cb = [db.x + db.w / 2, db.y + db.h / 2];
+  const len = dist(ca, cb) || 1, nx = -(cb[1] - ca[1]) / len, ny = (cb[0] - ca[0]) / len;
+  const c = [(ca[0] + cb[0]) / 2 + nx * off, (ca[1] + cb[1]) / 2 + ny * off];
+  const a = anchor(A, da, c[0], c[1]), z = anchor(B, db, c[0], c[1]);
+  const lx = 0.25 * a[0] + 0.5 * c[0] + 0.25 * z[0], ly = 0.25 * a[1] + 0.5 * c[1] + 0.25 * z[1];
+  return { d: off ? `M${a[0]},${a[1]} Q${c[0]},${c[1]} ${z[0]},${z[1]}` : `M${a[0]},${a[1]} L${z[0]},${z[1]}`, lx, ly: ly - 6, anchor: "middle" };
+}
+const isSel = (t, id) => sel && sel.t === t && sel.id === id;
+
+function render() {
+  Object.values(G).forEach(g => { g.textContent = ""; });
+  S.ink.forEach(i => {
+    el("path", { d: "M" + i.pts.map(p => p.join(",")).join(" L"), class: "ink" + (isSel("ink", i.id) ? " sel" : ""), "data-id": i.id }, G.ink);
+  });
+  S.links.forEach(l => {
+    const geo = linkGeo(l);
+    if (!geo) return;
+    const isa = ISA.test(l.label.trim());
+    const g = el("g", { class: "link" + (isa ? " isa" : "") + (isSel("link", l.id) ? " sel" : ""), "data-id": l.id }, G.links);
+    el("path", { d: geo.d, class: "hit" }, g);
+    el("path", { d: geo.d, class: "line", "marker-end": isa ? "url(#m-isa)" : "url(#m-ah)" }, g);
+    if (l.label.trim()) text(g, geo.lx, geo.ly, "", l.label.trim(), geo.anchor);
+  });
+  S.boxes.forEach(b => {
+    const d = dims(b);
+    const g = el("g", { class: "box" + (b.reuse ? " reuse" : "") + (isSel("box", b.id) ? " sel" : ""), "data-id": b.id }, G.boxes);
+    el("rect", { x: d.x, y: d.y, width: d.w, height: d.h, rx: b.shape === "ellipse" ? Math.min(d.h / 2, d.w / 2) : 8 }, g);
+    const ellipse = b.shape === "ellipse";
+    if (!d.p.attrs.length) {
+      text(g, d.x + d.w / 2, d.y + d.h / 2 + (b.reuse ? -1 : 5), "name", d.name, "middle");
+    } else {
+      text(g, d.x + d.w / 2, d.y + 21, "name", d.name, "middle");
+      el("line", { x1: d.x + (ellipse ? d.w * 0.18 : 0), x2: d.x + d.w - (ellipse ? d.w * 0.18 : 0), y1: d.y + 29, y2: d.y + 29, class: "sep" }, g);
+      d.p.attrs.forEach((a, k) => text(g, ellipse ? d.x + d.w / 2 : d.x + 10, d.y + 46 + k * 17, "attr", `${a.label}: ${a.datatype}`, ellipse ? "middle" : "start"));
+    }
+    if (b.reuse) text(g, d.x + d.w / 2, d.y + d.h - 7, "src", `♻ ${b.reuse}`, "middle");
+  });
+  document.querySelectorAll("[data-tool]").forEach(btn => btn.classList.toggle("on", btn.dataset.tool === tool));
+  $("hint").textContent = HINTS[tool];
+}
+
+// ── Pointer input (mouse, pen and touch) ──
+function pt(e) { const r = svg.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+function targetOf(e, p) {
+  const box = boxAt(p[0], p[1]);
+  if (box) return { t: "box", id: box.id };
+  const g = e.target.closest ? e.target.closest(".link") : null;
+  if (g) return { t: "link", id: g.getAttribute("data-id") };
+  if (e.target.classList && e.target.classList.contains("ink")) return { t: "ink", id: e.target.getAttribute("data-id") };
+  return null;
+}
+function draft(attrs) { G.draft.textContent = ""; return el("path", attrs, G.draft); }
+
+svg.addEventListener("pointerdown", e => {
+  if (editing) commitEdit();
+  if (e.button > 0) return;
+  e.preventDefault();
+  const p = pt(e);
+  const target = targetOf(e, p);
+  const now = Date.now();
+  if (target && target.t !== "ink" && lastTap && lastTap.id === target.id && now - lastTap.t < 380) {
+    lastTap = null; sel = target; render(); startEdit(target); return;
+  }
+  lastTap = target ? { id: target.id, t: now } : null;
+  svg.setPointerCapture(e.pointerId);
+  if (tool === "move" || (tool === "box" && target && target.t === "box")) {
+    sel = target; render();
+    if (target && target.t === "box") { const b = S.boxes.find(x => x.id === target.id); drag = { kind: "move", b, dx: p[0] - b.x, dy: p[1] - b.y, moved: false }; }
+  } else if (tool === "box") {
+    drag = { kind: "rect", p0: p };
+  } else if (tool === "arrow") {
+    if (target && target.t === "box") drag = { kind: "arrow", from: target.id, p0: p };
+    else { sel = target; render(); }
+  } else {
+    drag = { kind: "stroke", pts: [p], target };
+  }
+});
+svg.addEventListener("pointermove", e => {
+  if (!drag) return;
+  const p = pt(e);
+  if (drag.kind === "move") {
+    if (!drag.moved) { snap(); drag.moved = true; }
+    drag.b.x = Math.max(0, p[0] - drag.dx); drag.b.y = Math.max(0, p[1] - drag.dy); render();
+  } else if (drag.kind === "rect") {
+    const x = Math.min(drag.p0[0], p[0]), y = Math.min(drag.p0[1], p[1]);
+    draft({ class: "draft", d: `M${x},${y} h${Math.abs(p[0] - drag.p0[0])} v${Math.abs(p[1] - drag.p0[1])} h${-Math.abs(p[0] - drag.p0[0])} z` });
+  } else if (drag.kind === "arrow") {
+    draft({ class: "draft", d: `M${drag.p0[0]},${drag.p0[1]} L${p[0]},${p[1]}`, "marker-end": "url(#m-ah)" });
+  } else {
+    const last = drag.pts[drag.pts.length - 1];
+    if (dist(last, p) >= 1.5) drag.pts.push(p);
+    draft({ class: "draft pen", d: "M" + drag.pts.map(q => q.join(",")).join(" L") });
+  }
+});
+function endPointer(e) {
+  if (!drag) return;
+  const d = drag; drag = null; G.draft.textContent = "";
+  const p = pt(e);
+  if (d.kind === "move") return;
+  if (d.kind === "rect") {
+    let x = Math.min(d.p0[0], p[0]), y = Math.min(d.p0[1], p[1]), w = Math.abs(p[0] - d.p0[0]), h = Math.abs(p[1] - d.p0[1]);
+    if (w < 24 || h < 18) { w = 150; h = 56; x = p[0] - 75; y = p[1] - 28; }
+    addBox({ x: Math.max(0, x), y: Math.max(0, y), w, h, shape: "rect" });
+  } else if (d.kind === "arrow") {
+    const to = boxAt(p[0], p[1], 10);
+    if (to) addLink(d.from, to.id);
+  } else {
+    finishStroke(d.pts, d.target);
+  }
+}
+svg.addEventListener("pointerup", endPointer);
+svg.addEventListener("pointercancel", () => { drag = null; G.draft.textContent = ""; });
+
+function pathLength(pts) { let s = 0; for (let i = 1; i < pts.length; i += 1) s += dist(pts[i - 1], pts[i]); return s; }
+function bbox(pts) {
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const x = Math.min(...xs), y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+function area(pts) { let s = 0; for (let i = 0; i < pts.length; i += 1) { const a = pts[i], b = pts[(i + 1) % pts.length]; s += a[0] * b[1] - b[0] * a[1]; } return Math.abs(s / 2); }
+function segDist(p, a, b) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy;
+  const t = L ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / L)) : 0;
+  return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
+}
+function simplify(pts, eps) {
+  if (pts.length < 3) return pts;
+  const keep = new Uint8Array(pts.length); keep[0] = keep[pts.length - 1] = 1;
+  const stack = [[0, pts.length - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop(); let md = 0, mi = -1;
+    for (let i = a + 1; i < b; i += 1) { const dd = segDist(pts[i], pts[a], pts[b]); if (dd > md) { md = dd; mi = i; } }
+    if (md > eps) { keep[mi] = 1; stack.push([a, mi], [mi, b]); }
+  }
+  return pts.filter((_, i) => keep[i]);
+}
+/** Draw tool: recognise a box (closed loop), an arrow (box → box) or keep the ink. */
+function finishStroke(pts, target) {
+  const len = pathLength(pts);
+  if (len < 6) { sel = target; render(); return; }
+  const a = pts[0], z = pts[pts.length - 1], bb = bbox(pts);
+  const from = boxAt(a[0], a[1], 12), to = boxAt(z[0], z[1], 12);
+  if (from && to && from !== to) { addLink(from.id, to.id); return; }
+  const closed = bb.w >= 28 && bb.h >= 20 && dist(a, z) < Math.max(26, 0.3 * Math.max(bb.w, bb.h)) && len > 1.3 * (bb.w + bb.h);
+  if (closed) {
+    const round = area(pts) / (bb.w * bb.h) < 0.86;
+    addBox({ x: bb.x, y: bb.y, w: bb.w, h: bb.h, shape: round ? "ellipse" : "rect" });
+    return;
+  }
+  snap();
+  const id = nextId("n");
+  S.ink.push({ id, pts: simplify(pts, 1.2).map(q => [r0(q[0]), r0(q[1])]) });
+  sel = null; render();
+}
+function addBox(o) {
+  snap();
+  const b = Object.assign({ id: nextId("c"), text: "" }, o);
+  b.x = r0(b.x); b.y = r0(b.y); b.w = r0(b.w); b.h = r0(b.h);
+  S.boxes.push(b); sel = { t: "box", id: b.id }; render(); startEdit(sel);
+}
+function addLink(from, to) {
+  snap();
+  const l = { id: nextId("l"), from, to, label: "" };
+  S.links.push(l); sel = { t: "link", id: l.id }; render(); startEdit(sel);
+}
+
+// ── Text editing ──
+function startEdit(target) {
+  const ed = $("ed"), hint = $("edhint"), board = $("board");
+  let x, y, w, value, help;
+  if (target.t === "box") {
+    const b = S.boxes.find(o => o.id === target.id); if (!b) return;
+    const d = dims(b);
+    x = d.x; y = d.y; w = Math.max(d.w, 200); value = b.text || "";
+    ed.rows = Math.max(3, value.split("\n").length + 1);
+    help = "Class name, then one attribute per line (title: string). Ctrl+Enter or click outside to finish.";
+  } else if (target.t === "link") {
+    const l = S.links.find(o => o.id === target.id); const geo = l && linkGeo(l); if (!geo) return;
+    x = geo.lx - 95; y = geo.ly - 18; w = 190; value = l.label; ed.rows = 1;
+    help = "Property name, or “is a” for a subclass. Enter to finish.";
+  } else return;
+  editing = target;
+  x = Math.max(4, Math.min(x, board.clientWidth - w - 4)); y = Math.max(4, Math.min(y, board.clientHeight - 90));
+  Object.assign(ed.style, { left: x + "px", top: y + "px", width: w + "px", display: "block", height: "" });
+  Object.assign(hint.style, { left: x + "px", top: (y + ed.offsetHeight + 4) + "px", display: "block" });
+  hint.textContent = help;
+  ed.value = value; ed.focus(); ed.select();
+}
+function commitEdit(cancel) {
+  if (!editing) return;
+  const target = editing; editing = null;
+  const ed = $("ed"); const value = ed.value.replace(/\r/g, "");
+  ed.style.display = "none"; $("edhint").style.display = "none";
+  if (!cancel) {
+    if (target.t === "box") {
+      const b = S.boxes.find(o => o.id === target.id);
+      if (b && b.text !== value) {
+        snap();
+        if (b.reuse && parseBox({ text: value }).name !== parseBox(b).name) delete b.reuse;
+        b.text = value;
+      }
+    } else {
+      const l = S.links.find(o => o.id === target.id);
+      if (l && l.label !== value.trim()) { snap(); l.label = value.replace(/\n/g, " ").trim(); }
+    }
+  }
+  render();
+}
+$("ed").addEventListener("keydown", e => {
+  e.stopPropagation();
+  if (e.key === "Escape") { e.preventDefault(); commitEdit(true); }
+  else if (e.key === "Enter" && (e.ctrlKey || e.metaKey || (editing && editing.t === "link"))) { e.preventDefault(); commitEdit(); }
+  else if (e.key === "Tab") { e.preventDefault(); commitEdit(); }
+});
+$("ed").addEventListener("blur", () => commitEdit());
+
+// ── Commands ──
+function del() {
+  if (!sel) return;
+  snap();
+  if (sel.t === "box") { S.boxes = S.boxes.filter(b => b.id !== sel.id); S.links = S.links.filter(l => l.from !== sel.id && l.to !== sel.id); }
+  else if (sel.t === "link") S.links = S.links.filter(l => l.id !== sel.id);
+  else S.ink = S.ink.filter(i => i.id !== sel.id);
+  sel = null; render();
+}
+function undo() { if (!past.length) return; S = JSON.parse(past.pop()); sel = null; render(); }
+function reset() {
+  S = { boxes: [], links: [], ink: [] };
+  const width = svg.clientWidth || 640;
+  (INITIAL.classes || []).slice(0, 12).forEach((c, i) => {
+    S.boxes.push({ id: nextId("c"), text: c.label || c.reuse, reuse: c.reuse || undefined, x: Math.max(10, width - 210 - (i >= 6 ? 200 : 0)), y: 14 + (i % 6) * 66, w: 150, h: 48, shape: "rect" });
+  });
+}
+function result() {
+  const ids = new Set(S.boxes.map(b => b.id));
+  const classes = S.boxes.map(b => {
+    const d = dims(b);
+    const c = { id: b.id, label: d.name };
+    const reuse = b.reuse || (TERM.test(d.name) ? d.name : "");
+    if (reuse) c.reuse = reuse;
+    if (d.p.attrs.length) c.attributes = d.p.attrs.map(a => (TERM.test(a.label) ? Object.assign({ reuse: a.label }, a) : a));
+    c.shape = b.shape || "rect";
+    c.box = [r0(d.x), r0(d.y), r0(d.w), r0(d.h)];
+    return c;
+  });
+  const links = S.links.filter(l => ids.has(l.from) && ids.has(l.to)).map(l => {
+    const label = l.label.trim();
+    const o = { from: l.from, to: l.to, label, kind: ISA.test(label) ? "subclass" : "property" };
+    if (o.kind === "property" && TERM.test(label)) o.reuse = label;
+    return o;
+  });
+  let budget = 600;
+  const ink = S.ink.map(i => {
+    const bb = bbox(i.pts);
+    let pts = i.pts; let eps = 2;
+    while (pts.length > 60) { pts = simplify(i.pts, eps); eps *= 1.6; }
+    budget -= pts.length;
+    const near = boxAt(bb.x + bb.w / 2, bb.y + bb.h / 2, 40);
+    const o = { box: [r0(bb.x), r0(bb.y), r0(bb.w), r0(bb.h)] };
+    if (near) o.near = near.id;
+    if (budget > 0) o.points = pts;
+    return o;
+  });
+  const data = { format: "jsonld-editor-sketch", version: 1 };
+  if (INITIAL.task) data.task = INITIAL.task;
+  data.classes = classes; data.links = links;
+  if (ink.length) data.notes = ink;
+  return "SKETCH RESULT (jsonld-editor whiteboard). Boxes are classes, arrows are properties, \"is a\" arrows are subclasses, \"notes\" are free strokes.\n" + JSON.stringify(data);
+}
+async function copy() {
+  const t = $("result"); let copied = false;
+  try { await navigator.clipboard.writeText(t.value); copied = true; } catch (_) { /* blocked in this frame */ }
+  if (!copied) { t.focus(); t.select(); try { copied = document.execCommand("copy"); } catch (_) { copied = false; } }
+  $("msg").textContent = copied
+    ? "Copied. Paste it into the chat (Ctrl+V / ⌘V) and send it."
+    : "Copying is blocked here. The text is selected: press Ctrl+C (⌘C), then paste it into the chat.";
+  if (!copied) { t.focus(); t.select(); }
+}
+document.querySelector("nav").addEventListener("click", e => {
+  const btn = e.target.closest("button"); if (!btn) return;
+  if (btn.dataset.tool) { tool = btn.dataset.tool; render(); return; }
+  run(btn.dataset.act);
+});
+$("out").addEventListener("click", e => { const btn = e.target.closest("button"); if (btn) run(btn.dataset.act); });
+function run(act) {
+  if (act === "edit" && sel) startEdit(sel);
+  else if (act === "del") del();
+  else if (act === "undo") undo();
+  else if (act === "clear") { if (S.boxes.length || S.links.length || S.ink.length) snap(); reset(); sel = null; render(); }
+  else if (act === "done") {
+    commitEdit();
+    $("result").value = result();
+    const n = S.boxes.length, m = S.links.length;
+    $("msg").textContent = n ? `${n} box${n === 1 ? "" : "es"}, ${m} arrow${m === 1 ? "" : "s"}. Copy the result and paste it into the chat.` : "The board is empty — draw at least one box first.";
+    $("out").classList.add("show");
+    $("out").scrollIntoView({ block: "nearest" });
+  } else if (act === "copy") copy();
+  else if (act === "back") $("out").classList.remove("show");
+}
+document.addEventListener("keydown", e => {
+  if (editing || e.target.tagName === "TEXTAREA") return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); del(); }
+  else if (e.key === "Enter" && sel) { e.preventDefault(); startEdit(sel); }
+  else { const t = { d: "draw", b: "box", a: "arrow", v: "move" }[e.key.toLowerCase()]; if (t) { tool = t; render(); } }
+});
+$("task").textContent = INITIAL.task || "";
+requestAnimationFrame(() => { reset(); render(); });
+render();
+</script>
+</body>
+</html>

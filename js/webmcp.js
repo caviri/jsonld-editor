@@ -264,6 +264,301 @@ function createAgentTools(app) {
         });
     }
 
+    // ── Sketches: a whiteboard shown in the agent's chat ──
+    // get_sketch_widget hands the agent widgets/sketch.html (self-contained) and
+    // instructions to render it in the chat; the user draws, copies the
+    // "SKETCH RESULT" text back, and apply_sketch turns it into terms. The same
+    // prompt can be copied by hand from the Agents tab for chats without WebMCP.
+
+    const SKETCH_PATH = "widgets/sketch.html";
+    const SKETCH_MARKER = "SKETCH RESULT";
+    const RDFS_CLASS = "http://www.w3.org/2000/01/rdf-schema#Class";
+    const SKETCH_TYPES = { string: "string", text: "string", int: "integer", integer: "integer", number: "decimal", decimal: "decimal", float: "double", double: "double", bool: "boolean", boolean: "boolean", date: "date", datetime: "dateTime", time: "time", uri: "anyURI", url: "anyURI", iri: "anyURI", anyuri: "anyURI", year: "gYear" };
+    const SKETCH_ISA = /^(is[ -]?an?|a kind of|kind of|type of|subclass( of)?|sub[ -]?class[ -]?of|extends|inherits( from)?|specializes|rdfs:subClassOf)$/i;
+    const TERM_REF = /^([A-Za-z][\w.-]*:[^\s:]\S*|https?:\/\/\S+)$/;
+    let sketchSource = null;
+
+    async function sketchTemplate() {
+        if (!sketchSource) {
+            const res = await fetch(SKETCH_PATH, { cache: "no-cache" });
+            if (!res.ok) throw new Error(`Could not load the whiteboard (${SKETCH_PATH}: HTTP ${res.status}).`);
+            sketchSource = await res.text();
+        }
+        return sketchSource;
+    }
+
+    /** Classes to pre-place on the board: prefixed names / IRIs, or "document" for the document's own classes. */
+    function sketchClasses(list) {
+        const out = [];
+        const seen = new Set();
+        const add = (iri, label) => { if (!seen.has(iri) && out.length < 12) { seen.add(iri); out.push({ label, reuse: compact(iri) }); } };
+        [].concat(list || []).forEach(item => {
+            if (item === "document") {
+                model().nodes.forEach(node => {
+                    if (node.definitions > 0 && node.types.some(t => t === OWL + "Class" || t === RDFS_CLASS)) add(node.id, extractNodeLabel(node, context()));
+                });
+                return;
+            }
+            const iri = resolveTerm(item);
+            if (!iri) throw new Error(`Unknown class "${item}". Use a prefixed name with a known prefix or a full IRI.`);
+            const node = model().nodes.get(iri);
+            const term = app.vocab.describe(iri);
+            add(iri, node && node.definitions > 0 ? extractNodeLabel(node, context()) : (term && term.label) || splitCamel(iri.replace(/^.*[#/:]/, "")));
+        });
+        return out;
+    }
+
+    async function buildSketchWidget({ task, classes } = {}) {
+        const template = await sketchTemplate();
+        const initial = JSON.stringify({ task: String(task || "").slice(0, 300), classes: sketchClasses(classes) })
+            .replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+        const html = template.replace(/\/\*SKETCH-INITIAL\*\/[\s\S]*?\/\*SKETCH-END\*\//, () => initial);
+        // Smaller for the agent to copy: no comments, no indentation.
+        return html.replace(/<\!--[\s\S]*?-->\s*/g, "").split("\n").map(l => l.trim()).filter(l => l && !l.startsWith("//")).join("\n");
+    }
+
+    function sketchSteps(viaTools) {
+        const steps = [
+            "Show the whiteboard to the user now, inside this chat: render the HTML below as an interactive preview (ChatGPT: put it in a canvas and open Preview; Claude: an HTML artifact; other chats: any HTML preview or run-code feature). Use the code exactly as given: do not shorten, rewrite or \"improve\" it, and do not describe it instead of rendering it.",
+            "If the chat cannot render HTML, give the user the code in one ```html block and ask them to save it as ontology-sketch.html and open it in a browser.",
+            "Tell the user in one or two sentences how to draw: a box for each class (✏️ Draw turns a closed loop into a box, ▭ Box drags one); type the class name, then one attribute per line such as \"title: string\"; an arrow from one box to another for each property, labelled with its name, or \"is a\" for a subclass; then ✅ Done → 📋 Copy result, and paste it here.",
+            `Wait for the user's message that starts with "${SKETCH_MARKER}". Do not invent a sketch or continue without it.`,
+        ];
+        if (viaTools) {
+            steps.push(
+                "Call apply_sketch with {\"sketch\": <the pasted text>, \"dry_run\": true}. Show the user the plan: what will be created, what is reused, and the similar existing terms. Suggest reusing well-known terms where they fit (search_terms finds them): add \"reuse\": \"prefix:Term\" to that class, attribute or link in the sketch JSON.",
+                "When the user agrees, call apply_sketch again with dry_run false and the agreed sketch. The changes appear in the editor and can be undone there with Ctrl+Z.",
+            );
+        } else {
+            steps.push(
+                "When the user pastes it, review the sketch as an ontology engineer: which classes, attributes and links should reuse well-known terms (schema.org, Dublin Core, FOAF, PROV-O, DCAT, SKOS…), naming problems, and missing links or attributes. Keep it short.",
+                "Then give the sketch back as JSON in one ```json block, in the same format, with \"reuse\": \"prefix:Term\" added to each class, attribute or link that should reuse an existing term, and labels fixed where you suggest a better name. The user pastes that block into the editor (🤖 Agents → Apply a sketch), which creates the classes and properties.",
+            );
+        }
+        return steps.map((s, i) => `${i + 1}. ${s}`).join("\n");
+    }
+
+    async function sketchPromptText() {
+        const code = await buildSketchWidget({ classes: ["document"] });
+        return [
+            "I'm designing an ontology in a JSON-LD editor and want to sketch it on a whiteboard right here in the chat.",
+            "",
+            "Please:",
+            sketchSteps(false),
+            "",
+            "```html",
+            code,
+            "```",
+        ].join("\n");
+    }
+
+    function parseSketch(input) {
+        if (input && typeof input === "object") return input;
+        const s = String(input || "");
+        const start = s.indexOf("{");
+        const end = s.lastIndexOf("}");
+        if (start < 0 || end <= start) throw new Error(`No sketch found: pass the text that starts with "${SKETCH_MARKER}" (or its JSON).`);
+        try {
+            return JSON.parse(s.slice(start, end + 1));
+        } catch (err) {
+            throw new Error(`The sketch JSON is not valid: ${err.message}`);
+        }
+    }
+
+    function sketchDatatype(name, notes, where) {
+        const raw = String(name || "string").trim();
+        if (raw.includes(":")) {
+            const iri = resolveTerm(raw);
+            if (iri) return iri;
+        }
+        const local = SKETCH_TYPES[raw.toLowerCase()];
+        if (local) return XSD + local;
+        notes.push(`${where}: unknown datatype "${raw}"; used xsd:string.`);
+        return XSD + "string";
+    }
+
+    /** Sketch → what apply_sketch would do (nothing is changed here). */
+    function planSketch(data, ns) {
+        if (!data || !Array.isArray(data.classes)) throw new Error("The sketch has no \"classes\" list.");
+        const notes = [];
+        const classes = [];
+        const byKey = new Map();
+        const byIri = new Map();
+        const localName = ref => String(ref).replace(/^.*[#/:]/, "");
+        data.classes.forEach((c, i) => {
+            const key = String(c.id || `c${i + 1}`);
+            const label = String(c.label || "").trim();
+            const ref = c.reuse || (TERM_REF.test(label) ? label : null);
+            if (!label && !ref) { notes.push(`Box ${i + 1} has no name; skipped (and its arrows).`); return; }
+            let iri = ref ? resolveTerm(ref) : null;
+            let entry;
+            if (ref && !iri) notes.push(`"${ref}" has an unknown prefix; a new class is minted instead.`);
+            if (iri) {
+                entry = { key, label: label && label !== ref ? label : splitCamel(localName(iri)), iri, action: nodeExists(iri) ? "exists" : "reuse" };
+            } else {
+                const name = label && label !== ref ? label : splitCamel(localName(ref));
+                iri = ns + camel(name, true);
+                entry = { key, label: name, iri, action: nodeExists(iri) ? "exists" : "create" };
+            }
+            if (byIri.has(iri)) {
+                byKey.set(key, byIri.get(iri));
+                notes.push(`Two boxes are the same class ${compact(iri)}; merged.`);
+                return;
+            }
+            entry.attributes = Array.isArray(c.attributes) ? c.attributes : [];
+            byIri.set(iri, entry);
+            byKey.set(key, entry);
+            classes.push(entry);
+        });
+
+        const props = new Map();
+        const reused = [];
+        const addProp = (kind, label, ref, domain, range, where) => {
+            let iri = ref ? resolveTerm(ref) : null;
+            if (ref && !iri) notes.push(`${where}: "${ref}" has an unknown prefix; a new property is minted instead.`);
+            if (iri) { reused.push({ kind, iri, domain, range, action: nodeExists(iri) ? "exists" : "reuse" }); return; }
+            const name = ref ? splitCamel(localName(ref)) : label;
+            const local = camel(name, false);
+            if (!local) { notes.push(`${where}: no usable name; skipped.`); return; }
+            iri = ns + local;
+            let p = props.get(iri);
+            if (!p) {
+                p = { iri, label: name, kind, domains: [], ranges: [], action: nodeExists(iri) ? "exists" : "create" };
+                props.set(iri, p);
+            } else if (p.kind !== kind) {
+                notes.push(`"${name}" is both an attribute and an arrow; kept it as a${p.kind === "object" ? "n object" : " datatype"} property.`);
+                return;
+            }
+            if (domain && !p.domains.includes(domain)) p.domains.push(domain);
+            if (range && !p.ranges.includes(range)) p.ranges.push(range);
+        };
+        classes.forEach(c => c.attributes.forEach(a => {
+            let label = String((a && a.label) || "").trim();
+            let datatype = a && a.datatype;
+            let ref = (a && a.reuse) || (TERM_REF.test(label) ? label : null);
+            // "title:string" looks like a prefixed name; read it as name + datatype.
+            const m = ref && !resolveTerm(ref) ? /^([^:]+):\s*(\S+)$/.exec(ref) : null;
+            if (m && SKETCH_TYPES[m[2].toLowerCase()]) { label = m[1]; datatype = m[2]; ref = null; }
+            if (!label && !ref) return;
+            const where = `${c.label} · ${label || ref}`;
+            addProp("datatype", label, ref, c.iri, sketchDatatype(datatype, notes, where), where);
+        }));
+
+        const subclass = [];
+        (Array.isArray(data.links) ? data.links : []).forEach((l, i) => {
+            const from = byKey.get(String(l.from));
+            const to = byKey.get(String(l.to));
+            const label = String(l.label || "").trim();
+            if (!from || !to) { notes.push(`Arrow ${i + 1}${label ? ` ("${label}")` : ""} does not connect two named boxes; skipped.`); return; }
+            if (l.kind === "subclass" || SKETCH_ISA.test(label)) {
+                if (from === to) { notes.push(`"${from.label}" cannot be a subclass of itself; skipped.`); return; }
+                if (from.action === "reuse") {
+                    notes.push(`${compact(from.iri)} is defined elsewhere; its superclass is not asserted here (subclass it with a class of your own instead).`);
+                    return;
+                }
+                const known = from.action === "exists" && (model().nodes.get(from.iri).props.get(SCHEMA_PREDICATES.subClassOf) || []).some(v => v.iri === to.iri);
+                if (known) notes.push(`${compact(from.iri)} is already a subclass of ${compact(to.iri)}.`);
+                else if (!subclass.some(s => s.child === from && s.parent === to)) subclass.push({ child: from, parent: to });
+                return;
+            }
+            const name = label || `has ${to.label}`;
+            if (!label) notes.push(`The arrow from ${from.label} to ${to.label} has no name; called it "${name}".`);
+            addProp("object", name, l.reuse || (TERM_REF.test(label) ? label : null), from.iri, to.iri, `${from.label} → ${to.label}`);
+        });
+        const properties = [...props.values()];
+        properties.forEach(p => {
+            if (p.action === "exists") notes.push(`${compact(p.iri)} is already declared; its domain and range are not changed.`);
+            else if (p.domains.length > 1 || p.ranges.length > 1) notes.push(`"${p.label}" connects several classes, so it uses schema:domainIncludes / schema:rangeIncludes (rdfs:domain would require all of them at once).`);
+        });
+        return { namespace: ns, classes, properties, reused, subclass, notes };
+    }
+
+    function describePlan(plan, withSimilar) {
+        const counts = {
+            createClasses: plan.classes.filter(c => c.action === "create").length,
+            createProperties: plan.properties.filter(p => p.action === "create").length,
+            subClassOf: plan.subclass.length,
+            reused: plan.classes.filter(c => c.action !== "create").length + plan.reused.length,
+        };
+        return {
+            namespace: plan.namespace,
+            summary: `${counts.createClasses} class${counts.createClasses === 1 ? "" : "es"} and ${counts.createProperties} propert${counts.createProperties === 1 ? "y" : "ies"} to create, ${counts.subClassOf} subclass link${counts.subClassOf === 1 ? "" : "s"}, ${counts.reused} existing term${counts.reused === 1 ? "" : "s"} reused`,
+            counts,
+            classes: plan.classes.map(c => ({
+                label: c.label, id: compact(c.iri), action: c.action,
+                similarExisting: withSimilar && c.action === "create" ? similarTerms(c.label, "classes", c.iri) : undefined,
+            })),
+            properties: plan.properties.map(p => ({
+                label: p.label, id: compact(p.iri), kind: p.kind, action: p.action,
+                domain: p.domains.map(compact), range: p.ranges.map(compact),
+                similarExisting: withSimilar && p.action === "create" ? similarTerms(p.label, "properties", p.iri) : undefined,
+            })),
+            reusedProperties: plan.reused.map(r => ({ id: compact(r.iri), kind: r.kind, from: compact(r.domain), to: compact(r.range), note: "nothing to declare" })),
+            subClassOf: plan.subclass.map(s => ({ child: compact(s.child.iri), parent: compact(s.parent.iri) })),
+            notes: plan.notes,
+        };
+    }
+
+    /** Write a plan into the document as one undoable edit. */
+    function applySketchPlan(plan) {
+        const P = SCHEMA_PREDICATES;
+        const newClasses = plan.classes.filter(c => c.action === "create");
+        const newProps = plan.properties.filter(p => p.action === "create");
+        if (!newClasses.length && !newProps.length && !plan.subclass.length) return { changed: false };
+        let error = null;
+        const sameValue = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+        const done = app.mutate(w => {
+            try {
+                if (plan.namespace === DEFAULT_NAMESPACE && !JsonLd.prefixesOf(w.context()).some(p => p.namespace === DEFAULT_NAMESPACE)) w.addPrefix("ex", DEFAULT_NAMESPACE);
+                const graph = w.graph();
+                newClasses.forEach(c => {
+                    const node = { "@id": w.id(c.iri), "@type": w.key(OWL + "Class") };
+                    node[w.key(P.label)] = c.label;
+                    const supers = plan.subclass.filter(s => s.child === c).map(s => s.parent.iri);
+                    if (supers.length) node[w.key(P.subClassOf)] = w.refs(supers);
+                    graph.push(node);
+                });
+                plan.subclass.filter(s => s.child.action === "exists").forEach(s => {
+                    const obj = w.findNode(s.child.iri);
+                    if (!obj) { plan.notes.push(`${compact(s.child.iri)} is only described inside another node; add its superclass in the source.`); return; }
+                    const key = Object.keys(obj).find(k => !k.startsWith("@") && JsonLd.expandIri(w.context(), k, { vocab: true }) === P.subClassOf) || w.key(P.subClassOf);
+                    const ref = w.ref(s.parent.iri);
+                    const list = obj[key] === undefined ? [] : [].concat(obj[key]);
+                    if (!list.some(v => sameValue(v, ref))) list.push(ref);
+                    obj[key] = list.length === 1 ? list[0] : list;
+                });
+                newProps.forEach(p => {
+                    const node = { "@id": w.id(p.iri), "@type": w.key(OWL + (p.kind === "object" ? "ObjectProperty" : "DatatypeProperty")) };
+                    node[w.key(P.label)] = p.label;
+                    if (p.domains.length) node[w.key(p.domains.length > 1 || p.ranges.length > 1 ? P.domainIncludes : P.domain)] = w.refs(p.domains);
+                    if (p.ranges.length) node[w.key(p.domains.length > 1 || p.ranges.length > 1 ? P.rangeIncludes : P.range)] = w.refs(p.ranges);
+                    graph.push(node);
+                });
+                return true;
+            } catch (err) {
+                error = err.message;
+                return false;
+            }
+        }, {
+            select: newClasses.length ? newClasses[0].iri : undefined,
+            message: `Applied the sketch: ${newClasses.length} class${newClasses.length === 1 ? "" : "es"}, ${newProps.length} propert${newProps.length === 1 ? "y" : "ies"}${plan.subclass.length ? `, ${plan.subclass.length} subclass link${plan.subclass.length === 1 ? "" : "s"}` : ""}. Ctrl+Z undoes it.`,
+        });
+        if (error) throw new Error(error);
+        if (!done) throw new Error("The sketch could not be applied (see the editor status).");
+        return { changed: true };
+    }
+
+    async function runApplySketch({ sketch, namespace, dry_run = false }) {
+        const ns = namespace ? resolveNamespace(namespace) : defaultNamespace();
+        if (!ns) return fail(`Unknown namespace "${namespace}".`);
+        await app.vocab.loadBuiltin();
+        const plan = planSketch(parseSketch(sketch), ns);
+        if (!plan.classes.length) return fail("The sketch has no named boxes.");
+        if (dry_run) return ok(Object.assign({ dryRun: true }, describePlan(plan, true), { next: "Show this plan to the user; after they agree, call apply_sketch again with dry_run false." }));
+        const res = applySketchPlan(plan);
+        return ok(Object.assign({ dryRun: false, applied: res.changed }, describePlan(plan, false), res.changed ? {} : { note: "Nothing to change: every term already exists." }));
+    }
+
     // ── Tool definitions ──────────────────────
 
     const STR = (description, extra = {}) => Object.assign({ type: "string", description }, extra);
@@ -1076,6 +1371,57 @@ function createAgentTools(app) {
             },
             summarize: (input, r) => `downloaded ${r.file || input.format}`,
         },
+
+        // ── Sketch in the chat ──
+        {
+            name: "get_sketch_widget",
+            title: "Whiteboard for the chat",
+            description: "Get a whiteboard to show the user inside your chat, so they can draw the ontology: a self-contained HTML page (no network) plus step-by-step instructions. Render it in the chat (canvas, artifact or HTML preview); the user draws boxes (classes), attributes and arrows (properties; \"is a\" = subclass), then pastes back a text starting with \"SKETCH RESULT\" — pass it to apply_sketch. Does not change the document.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    task: STR("What to ask the user to draw, shown above the whiteboard, e.g. \"How do datasets, people and projects relate?\""),
+                    classes: ARR("Existing classes to place on the board, ready to link to: prefixed names or IRIs (e.g. [\"schema:Person\", \"dcat:Dataset\"]), or \"document\" for the classes this document declares. At most 12."),
+                },
+            },
+            annotations: { readOnlyHint: true, untrustedContentHint: true },
+            run: async ({ task, classes }) => {
+                const code = await buildSketchWidget({ task, classes });
+                return ok({
+                    instructions: sketchSteps(true),
+                    say_to_user: "Here's a whiteboard: draw a box for each class (name on the first line, attributes below, e.g. \"title: string\"), arrows between boxes for the properties (\"is a\" for a subclass), then press ✅ Done → 📋 Copy result and paste it here.",
+                    result_starts_with: SKETCH_MARKER,
+                    next_tool: "apply_sketch",
+                    widget: {
+                        type: "text/html",
+                        filename: "ontology-sketch.html",
+                        standalone_url: new URL(SKETCH_PATH, location.href).href,
+                        chars: code.length,
+                        code,
+                    },
+                });
+            },
+            summarize: input => `prepared a whiteboard${input.task ? `: ${String(input.task).slice(0, 60)}` : ""}`,
+        },
+        {
+            name: "apply_sketch",
+            title: "Apply a sketch",
+            description: "Turn the user's whiteboard sketch (the pasted text starting with \"SKETCH RESULT\", or its JSON) into the ontology, as one undoable edit: boxes → owl:Class, attributes → owl:DatatypeProperty (xsd datatypes), arrows → owl:ObjectProperty with domain and range, \"is a\" arrows → rdfs:subClassOf. A class, attribute or link with \"reuse\": \"prefix:Term\" (or named with a prefixed name) reuses that term instead of minting one. Run with dry_run: true first, show the plan and the similar existing terms, then apply.",
+            write: true,
+            previewable: true,
+            inputSchema: {
+                type: "object",
+                properties: {
+                    sketch: { description: "The text the user pasted (starting with \"SKETCH RESULT\"), or the sketch object {classes:[{id, label, attributes:[{label, datatype, reuse?}], reuse?}], links:[{from, to, label, kind?: \"property\"|\"subclass\", reuse?}]}" },
+                    namespace: STR("Namespace IRI or prefix for new terms (default: the document's own namespace)"),
+                    dry_run: { type: "boolean", description: "Only return the plan; change nothing", default: false },
+                },
+                required: ["sketch"],
+            },
+            annotations: { readOnlyHint: false },
+            run: runApplySketch,
+            summarize: (input, r) => (r.dryRun ? `previewed a sketch: ${r.summary}` : `applied a sketch: ${r.summary}`),
+        },
     ];
 
     // ── Activity log ──────────────────────────
@@ -1204,7 +1550,7 @@ function createAgentTools(app) {
             ms: Date.now() - started,
             changes,
         });
-        if (def.write) app.notify(`🤖 Agent ${summary}${changes && okFlag ? ` (${changeSummary(changes)})` : ""}${okFlag ? " — Ctrl+Z in the editor undoes it" : ""}`, okFlag ? "info" : "warning");
+        if (def.write && !(result && result.dryRun)) app.notify(`🤖 Agent ${summary}${changes && okFlag ? ` (${changeSummary(changes)})` : ""}${okFlag ? " — Ctrl+Z in the editor undoes it" : ""}`, okFlag ? "info" : "warning");
     }
 
     function toWebMcpTool(def) {
@@ -1218,7 +1564,7 @@ function createAgentTools(app) {
                 const started = Date.now();
                 let result;
                 let changes = null;
-                if (def.write && !settings.allowEdits) {
+                if (def.write && !settings.allowEdits && !(def.previewable && input && input.dry_run)) {
                     result = fail("The user has not allowed agents to edit the document (🤖 Agents tab → Allow edits). Read-only tools still work.");
                 } else if (!app.getModel()) {
                     result = fail("No document is loaded yet.");
@@ -1386,6 +1732,107 @@ function createAgentTools(app) {
         if (status === "registered" && statusDetail) statusBox.appendChild(el("p", "wb-note", `Some tools failed: ${statusDetail}`));
     }
 
+    // "Sketch in a chat": the whiteboard prompt for any chat (no WebMCP needed),
+    // and the way back: paste the result, preview the plan, apply it.
+    function sketchSection() {
+        const box = el("details", "agents-sketch");
+        box.open = true;
+        box.appendChild(el("summary", "", "✏️ Sketch in a chat"));
+        box.appendChild(el("p", "wb-note", "Let ChatGPT, Claude or another chat show a whiteboard where you draw classes (boxes), attributes and properties (arrows). Connected agents get it with get_sketch_widget. For any other chat: copy the prompt, paste it there, draw, and paste the result back here."));
+        const row = el("div", "agents-sketch-row");
+        const copyBtn = el("button", "tool-btn primary", "📋 Copy prompt for a chat");
+        copyBtn.type = "button";
+        copyBtn.dataset.sketch = "copy";
+        copyBtn.title = "Instructions and the whiteboard code (self-contained HTML) to paste into a chat";
+        const openLink = el("a", "tool-btn", "Open the whiteboard ↗");
+        openLink.href = SKETCH_PATH;
+        openLink.target = "_blank";
+        openLink.rel = "noopener";
+        openLink.title = "The same whiteboard in a new tab, for chats that cannot show HTML";
+        row.appendChild(copyBtn);
+        row.appendChild(openLink);
+        box.appendChild(row);
+        const fallback = el("textarea", "agents-sketch-input");
+        fallback.readOnly = true;
+        fallback.hidden = true;
+        fallback.rows = 4;
+        fallback.setAttribute("aria-label", "Whiteboard prompt");
+        box.appendChild(fallback);
+        const warm = () => { sketchTemplate().catch(() => {}); };
+        copyBtn.addEventListener("pointerenter", warm, { once: true });
+        copyBtn.addEventListener("focus", warm, { once: true });
+        copyBtn.addEventListener("click", async () => {
+            copyBtn.disabled = true;
+            try {
+                const text = await sketchPromptText();
+                let copied = false;
+                try { await navigator.clipboard.writeText(text); copied = true; } catch (_) { /* no clipboard permission */ }
+                fallback.hidden = copied;
+                if (!copied) { fallback.value = text; fallback.focus(); fallback.select(); }
+                app.notify(copied
+                    ? `Copied the whiteboard prompt (${Math.round(text.length / 1000)} kB). Paste it into ChatGPT, Claude or another chat.`
+                    : "The clipboard is blocked: the prompt is selected below — press Ctrl+C (⌘C).", copied ? "success" : "warning");
+                lifecycle(`Whiteboard prompt prepared for a chat (${text.length} characters, ${copied ? "copied" : "shown for manual copy"}).`);
+            } catch (err) {
+                app.notify(err.message, "error");
+            }
+            copyBtn.disabled = false;
+        });
+
+        const label = el("label", "agents-sketch-label", "Paste the result (\"SKETCH RESULT …\" or the JSON the chat gave back):");
+        const input = el("textarea", "agents-sketch-input");
+        input.id = "agents-sketch-input";
+        label.htmlFor = input.id;
+        input.rows = 4;
+        input.spellcheck = false;
+        input.placeholder = "SKETCH RESULT (jsonld-editor whiteboard) …\n{\"format\":\"jsonld-editor-sketch\", \"classes\": […], \"links\": […]}";
+        box.appendChild(label);
+        box.appendChild(input);
+        const actions = el("div", "agents-sketch-row");
+        const previewBtn = el("button", "tool-btn", "Preview");
+        const applyBtn = el("button", "tool-btn primary", "Apply to the document");
+        previewBtn.type = "button";
+        previewBtn.dataset.sketch = "preview";
+        applyBtn.type = "button";
+        applyBtn.dataset.sketch = "apply";
+        actions.appendChild(previewBtn);
+        actions.appendChild(applyBtn);
+        box.appendChild(actions);
+        const out = el("div", "agents-sketch-plan");
+        box.appendChild(out);
+
+        const item = (list, action, title, detail, similar) => {
+            const li = el("li");
+            li.appendChild(el("span", `agents-badge sk-${action}`, action));
+            li.appendChild(el("code", "", title));
+            if (detail) li.appendChild(el("span", "agents-sketch-detail", detail));
+            if (similar && similar.length) li.appendChild(el("span", "agents-sketch-similar", `similar existing: ${similar.join(", ")}`));
+            list.appendChild(li);
+        };
+        const run = async dry => {
+            out.innerHTML = "";
+            if (!input.value.trim()) { out.appendChild(el("div", "rdf-check warn", "Paste a sketch result first.")); return; }
+            let r;
+            try {
+                r = await runApplySketch({ sketch: input.value, dry_run: dry });
+            } catch (err) {
+                r = fail(err && err.message ? err.message : String(err));
+            }
+            if (!r.ok) { out.appendChild(el("div", "rdf-check fail", r.error)); return; }
+            out.appendChild(el("div", `rdf-check ${dry ? "warn" : "ok"}`, dry ? `Preview — ${r.summary}. Nothing is changed yet.` : (r.applied ? `Applied — ${r.summary}. Ctrl+Z in the editor undoes it.` : r.note)));
+            const list = el("ul", "agents-sketch-list");
+            r.classes.forEach(c => item(list, c.action, c.id, c.label !== c.id ? c.label : "", c.similarExisting));
+            r.properties.forEach(p => item(list, p.action, p.id, `${p.kind} · ${p.domain.join(", ") || "any"} → ${p.range.join(", ") || "any"}`, p.similarExisting));
+            r.reusedProperties.forEach(p => item(list, "reuse", p.id, `${p.kind} · ${p.from} → ${p.to}`));
+            r.subClassOf.forEach(s => item(list, "subclass", `${s.child} ⊑ ${s.parent}`, ""));
+            r.notes.forEach(n => item(list, "note", "", n));
+            out.appendChild(list);
+        };
+        previewBtn.addEventListener("click", () => run(true));
+        applyBtn.addEventListener("click", () => run(false));
+        return box;
+    }
+
     function renderLeft() {
         left.innerHTML = "";
         left.appendChild(el("div", "wb-card-title", "Agents (WebMCP)"));
@@ -1406,6 +1853,7 @@ function createAgentTools(app) {
         const links = el("p", "wb-note");
         links.innerHTML = `<a href="${WEBMCP_CONFIG.docs}" target="_blank" rel="noopener noreferrer">About WebMCP</a> · <a href="${WEBMCP_CONFIG.mcpbExtension}" target="_blank" rel="noopener noreferrer">MCP-B extension</a>`;
         left.appendChild(links);
+        left.appendChild(sketchSection());
         const details = el("details", "agents-tools");
         details.appendChild(el("summary", "", `${TOOLS.length} tools`));
         const list = el("ul");

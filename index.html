@@ -18,6 +18,7 @@
     <!-- Styles -->
     <link rel="stylesheet" href="css/styles.css">
     <link rel="stylesheet" href="css/workbench.css">
+    <link rel="stylesheet" href="css/responsive.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/sparql/sparql.min.js"></script>
@@ -78,6 +79,7 @@
         </div>
 
         <div id="main-content">
+            <div id="mobile-scrim" aria-hidden="true"></div>
 
             <!-- ── Sidebar ────────────────────────── -->
             <div id="sidebar-wrapper">
@@ -219,6 +221,12 @@
                         <div id="diagram-notice"></div>
                     </div>
                     <div id="view-label">Instance view</div>
+                    <div id="mobile-selection" role="status" aria-live="polite">
+                        <span class="ms-dot"></span>
+                        <span class="ms-text"><span class="ms-label"></span><span class="ms-type"></span></span>
+                        <button type="button" class="ms-primary" id="mobile-selection-details">Details</button>
+                        <button type="button" id="mobile-selection-close" aria-label="Clear selection">✕</button>
+                    </div>
 
                     <!-- Controls -->
                     <div id="controls">

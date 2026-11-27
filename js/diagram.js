@@ -22,9 +22,17 @@
      community   groups found by label propagation over the links
    Groups can be collapsed into a single summary card.
 
+   Link lists: each card can list its outputs (links from it) and inputs
+   (links to it) — toggled for the whole diagram in the toolbar (⇄ Links), and
+   opened or closed per card with the OUTPUTS / INPUTS bar. Connectors leave
+   from the output row and, when the target lists its inputs, arrive at the
+   matching input row.
+
    Interaction: drag the background to pan, wheel to zoom, drag a card (or
    the selected cards, or a group by its title) to move it, click to select,
    Ctrl/⌘+click to add to the selection, double-click for the source.
+   Pointer events cover mouse, touch and pen: two fingers pinch-zoom and a
+   double tap opens the source.
 */
 
 function createDiagram(app, graph) {
@@ -37,6 +45,7 @@ function createDiagram(app, graph) {
     const HEADER_H = 36;
     const ROW_H = 15;
     const EDGE_ROW_H = 17;
+    const SEC_H = 17;             // the OUTPUTS / INPUTS bar of a card
     const MAX_ROWS = 6;
     const MAX_EDGE_ROWS = 10;
     const MIN_W = 160;
@@ -59,7 +68,15 @@ function createDiagram(app, graph) {
     let selection = new Set();
     const collapsedBoxes = new Set();
     const collapsedClusters = new Set();
-    const prefs = Object.assign({ instances: "type", schema: "layered" }, readPrefs());
+    // Link lists on the cards: outputs (links from the card) and inputs (links to it).
+    // Shown or hidden for the whole diagram; open or closed per card, with a default.
+    const prefs = Object.assign({ instances: "type", schema: "layered", showOut: true, showIn: false, closedSections: { out: false, in: false } }, readPrefs());
+    const sectionOverride = new Map();   // `${cardId}|out|in` -> closed?
+    const SECTION_NAMES = { out: "Outputs", in: "Inputs" };
+    function sectionClosed(id, sec) {
+        const key = `${id}|${sec}`;
+        return sectionOverride.has(key) ? sectionOverride.get(key) : Boolean(prefs.closedSections && prefs.closedSections[sec]);
+    }
     const measureCtx = document.createElement("canvas").getContext("2d");
 
     function readPrefs() {
@@ -107,6 +124,21 @@ function createDiagram(app, graph) {
         </label>
         <button type="button" class="dt-btn" data-act="collapse" title="Collapse the selected cards, or all cards when nothing is selected">▸ Collapse</button>
         <button type="button" class="dt-btn" data-act="expand" title="Expand the selected cards, or all cards when nothing is selected">▾ Expand</button>
+        <span class="dt-menu-wrap">
+            <button type="button" class="dt-btn" data-act="links-menu" aria-haspopup="true" aria-expanded="false" title="Which links the cards list (outputs, inputs) and whether those lists are open">⇄ Links ▾</button>
+            <div class="dt-menu" role="menu" hidden>
+                <label class="dt-check"><input type="checkbox" data-pref="showOut"> <b>→ Outputs</b> <span>links from the card</span></label>
+                <label class="dt-check"><input type="checkbox" data-pref="showIn"> <b>← Inputs</b> <span>links to the card</span></label>
+                <div class="dt-menu-sep"></div>
+                <div class="dt-menu-row"><span>Outputs</span>
+                    <button type="button" class="dt-btn" data-act="section" data-sec="out" data-close="0">▾ Open</button>
+                    <button type="button" class="dt-btn" data-act="section" data-sec="out" data-close="1">▸ Close</button></div>
+                <div class="dt-menu-row"><span>Inputs</span>
+                    <button type="button" class="dt-btn" data-act="section" data-sec="in" data-close="0">▾ Open</button>
+                    <button type="button" class="dt-btn" data-act="section" data-sec="in" data-close="1">▸ Close</button></div>
+                <p class="dt-menu-note">Open / Close apply to the selected cards, or to every card. Click a card's OUTPUTS or INPUTS bar to open or close just that list.</p>
+            </div>
+        </span>
         <span class="dt-groups">
             <button type="button" class="dt-btn" data-act="collapse-groups" title="Collapse every group into one card">▸ Groups</button>
             <button type="button" class="dt-btn" data-act="expand-groups" title="Expand every group">▾ Groups</button>
@@ -121,10 +153,49 @@ function createDiagram(app, graph) {
         render();
     });
     toolbar.addEventListener("mousedown", e => e.stopPropagation());
+    const linksBtn = toolbar.querySelector('[data-act="links-menu"]');
+    const linksMenu = toolbar.querySelector(".dt-menu");
+    function syncLinksMenu() {
+        linksMenu.querySelectorAll("[data-pref]").forEach(cb => { cb.checked = Boolean(prefs[cb.dataset.pref]); });
+        linksMenu.querySelectorAll('.dt-menu-row').forEach((row, i) => { row.classList.toggle("off", !prefs[i === 0 ? "showOut" : "showIn"]); });
+    }
+    function setLinksMenu(open) {
+        linksMenu.hidden = !open;
+        linksBtn.setAttribute("aria-expanded", String(open));
+        if (open) syncLinksMenu();
+    }
+    linksMenu.addEventListener("change", e => {
+        const cb = e.target.closest("[data-pref]");
+        if (!cb) return;
+        prefs[cb.dataset.pref] = cb.checked;
+        savePrefs();
+        syncLinksMenu();
+        render({ keepView: true });
+    });
+    document.addEventListener("pointerdown", e => {
+        if (!linksMenu.hidden && !e.target.closest(".dt-menu-wrap")) setLinksMenu(false);
+    });
+    /** Open or close one link list (sec: "out" | "in") on the selected cards, or on all cards. */
+    function setSections(sec, closed) {
+        const ids = [...selection].filter(id => boxes.has(id));
+        if (ids.length) {
+            ids.forEach(id => sectionOverride.set(`${id}|${sec}`, closed));
+        } else {
+            prefs.closedSections = Object.assign({ out: false, in: false }, prefs.closedSections, { [sec]: closed });
+            [...sectionOverride.keys()].forEach(k => { if (k.endsWith(`|${sec}`)) sectionOverride.delete(k); });
+        }
+        if (sec === "out") prefs.showOut = true;
+        if (sec === "in") prefs.showIn = true;
+        savePrefs();
+        syncLinksMenu();
+        render({ keepView: true });
+    }
     toolbar.addEventListener("click", e => {
         const btn = e.target.closest("[data-act]");
         if (!btn) return;
         const act = btn.dataset.act;
+        if (act === "links-menu") { setLinksMenu(linksMenu.hidden); return; }
+        if (act === "section") { setSections(btn.dataset.sec, btn.dataset.close === "1"); return; }
         if (act === "mermaid") { app.exportMermaid("mmd"); return; }
         const targets = selection.size ? [...selection].filter(id => boxes.has(id)) : [...boxes.keys()].filter(id => !id.startsWith("group::"));
         if (act === "collapse") targets.forEach(id => collapsedBoxes.add(id));
@@ -226,36 +297,62 @@ function createDiagram(app, graph) {
         return rows;
     }
 
-    function measureCard(node, outgoing, labels) {
+    /**
+     * Card size and content. Link lists: one section per direction (outputs =
+     * links from the card, inputs = links to it), each with a bar that opens or
+     * closes it. outPort / inPort give, for every link, the y of the row (or of
+     * the closed section's bar) where its connector leaves or arrives.
+     */
+    function measureCard(node, outgoing, incoming, labels) {
         const collapsed = !node.isGroup && collapsedBoxes.has(node.id);
         let w = Math.max(textWidth(node.label || "", FONT_LABEL) + 44, textWidth((node.nodeType || "").toUpperCase(), FONT_TYPE) + 60);
-        if (collapsed) return { w: Math.max(MIN_W, Math.min(MAX_W, Math.ceil(w))), h: HEADER_H + 4, rows: [], more: 0, edgeRows: [], collapsed };
+        const clampW = () => Math.max(MIN_W, Math.min(MAX_W, Math.ceil(w)));
+        const outPort = new Map();
+        const inPort = new Map();
+        if (collapsed) return { w: clampW(), h: HEADER_H + 4, rows: [], more: 0, edgeRows: [], sections: [], outPort, inPort, collapsed };
         const all = valueRows(node);
         const rows = all.slice(0, MAX_ROWS);
         rows.forEach(r => { w = Math.max(w, textWidth((r.key ? r.key + ": " : "") + r.text, FONT_ROW) + 24); });
-        const edgeRows = [];
-        const visible = outgoing.slice(0, MAX_EDGE_ROWS);
-        visible.forEach(e => {
-            const text = `${e.label}${e.count > 1 ? ` ×${e.count}` : ""} → ${labels.get(e.target) || e.target}`;
-            edgeRows.push({ text, edges: [e] });
-            w = Math.max(w, textWidth(text, FONT_ROW) + 34);
-        });
-        if (outgoing.length > MAX_EDGE_ROWS) {
-            edgeRows.push({ text: `+${outgoing.length - MAX_EDGE_ROWS} more links`, edges: outgoing.slice(MAX_EDGE_ROWS), more: true });
-        }
-        w = Math.max(MIN_W, Math.min(MAX_W, Math.ceil(w)));
         const more = all.length - rows.length;
         let h = HEADER_H;
         const valueBlock = rows.length + (more > 0 ? 1 : 0);
         if (valueBlock) h += valueBlock * ROW_H + 10;
-        let edgeTop = h;
-        if (edgeRows.length) {
-            h += 4;
-            edgeTop = h;
-            h += edgeRows.length * EDGE_ROW_H + 6;
-        }
-        edgeRows.forEach((r, i) => { r.cy = edgeTop + 4 + i * EDGE_ROW_H + EDGE_ROW_H / 2; });
-        return { w, h, rows, more, edgeRows, edgeTop, collapsed };
+
+        const edgeRows = [];
+        const sections = [];
+        const specs = [];
+        if (prefs.showOut && outgoing.length) specs.push({ sec: "out", list: outgoing, ports: outPort });
+        if (prefs.showIn && incoming.length) specs.push({ sec: "in", list: incoming, ports: inPort });
+        specs.forEach(spec => {
+            const closed = sectionClosed(node.id, spec.sec);
+            const title = `${SECTION_NAMES[spec.sec].toUpperCase()} · ${spec.list.length}`;
+            w = Math.max(w, textWidth(`▾ ${spec.sec === "out" ? "→" : "←"} ${title}`, FONT_TYPE) + 30);
+            const top = h + (sections.length ? 2 : 4);
+            const section = { sec: spec.sec, top, cy: top + SEC_H / 2, count: spec.list.length, closed, title };
+            sections.push(section);
+            h = top + SEC_H;
+            if (closed) {
+                spec.list.forEach(e => spec.ports.set(e, section.cy));
+                return;
+            }
+            const mine = [];
+            spec.list.slice(0, MAX_EDGE_ROWS).forEach(e => {
+                const other = spec.sec === "out" ? e.target : e.source;
+                const text = `${e.label}${e.count > 1 ? ` ×${e.count}` : ""} ${spec.sec === "out" ? "→" : "←"} ${labels.get(other) || other}`;
+                mine.push({ sec: spec.sec, text, edges: [e], other });
+                w = Math.max(w, textWidth(text, FONT_ROW) + 34);
+            });
+            if (spec.list.length > MAX_EDGE_ROWS) {
+                mine.push({ sec: spec.sec, text: `+${spec.list.length - MAX_EDGE_ROWS} more links`, edges: spec.list.slice(MAX_EDGE_ROWS), more: true });
+            }
+            mine.forEach((r, i) => {
+                r.cy = h + 2 + i * EDGE_ROW_H + EDGE_ROW_H / 2;
+                r.edges.forEach(e => spec.ports.set(e, r.cy));
+            });
+            edgeRows.push(...mine);
+            h += 2 + mine.length * EDGE_ROW_H + 4;
+        });
+        return { w: clampW(), h, rows, more, edgeRows, sections, outPort, inPort, collapsed };
     }
 
     // ── Layered placement (used for the whole graph or inside a group) ──
@@ -378,24 +475,50 @@ function createDiagram(app, graph) {
         return `${d} L${last[0]},${last[1]}`;
     }
 
+    /**
+     * Orthogonal connectors. A link leaves its source from its output row (or the
+     * closed OUTPUTS bar, or the header when outputs are hidden). When the target
+     * lists its inputs, the link arrives at its input row from the side;
+     * otherwise it enters the target's top, bottom or nearest side.
+     */
     function computeRoutes() {
         const plans = [];
+        const loops = [];
         boxes.forEach(box => {
-            const rows = box.content.edgeRows;
+            const c = box.content;
             const sideLanes = { 1: 0, "-1": 0 };
-            const emit = (e, cy) => {
+            (box.outgoing || []).forEach((e, i) => {
                 const t = boxes.get(e.target);
-                if (!t || t === box) return;
+                if (!t) return;
+                const outCy = c.outPort.get(e);
+                const sy = box.y + (outCy !== undefined ? outCy : HEADER_H / 2 + ((i % 5) - 2) * 3);
+                const inCy = t.content.inPort.get(e);
+                if (t === box) {
+                    // A link to itself: a small loop on the right, row to row.
+                    if (outCy !== undefined && inCy !== undefined) loops.push({ e, box, sy, ty: box.y + inCy, k: loops.filter(l => l.box === box).length });
+                    return;
+                }
+                if (inCy !== undefined) {
+                    let dir;
+                    let entry;
+                    if (t.x >= box.x + box.w + 24) { dir = 1; entry = "left"; }
+                    else if (t.x + t.w <= box.x - 24) { dir = -1; entry = "right"; }
+                    else { dir = t.x + t.w / 2 >= box.x + box.w / 2 ? 1 : -1; entry = dir > 0 ? "right" : "left"; }
+                    plans.push({
+                        e, s: box, t, dir, entry, port: true, lane: sideLanes[dir]++,
+                        sx: dir > 0 ? box.x + box.w : box.x, sy,
+                        tx: entry === "left" ? t.x : t.x + t.w, ty: t.y + inCy,
+                    });
+                    return;
+                }
                 const dir = t.x + t.w / 2 >= box.x + box.w / 2 ? 1 : -1;
-                const lane = sideLanes[dir]++;
-                plans.push({ e, s: box, t, dir, sx: dir > 0 ? box.x + box.w : box.x, sy: box.y + cy, lane });
-            };
-            if (rows.length) rows.forEach(r => r.edges.forEach(e => emit(e, r.cy)));
-            else (box.outgoing || []).forEach((e, i) => emit(e, HEADER_H / 2 + ((i % 5) - 2) * 3));
+                plans.push({ e, s: box, t, dir, sx: dir > 0 ? box.x + box.w : box.x, sy, lane: sideLanes[dir]++ });
+            });
         });
 
-        // Decide how each connector enters its target.
-        plans.forEach(p => {
+        // Links without an input row: decide how each enters its target.
+        const free = plans.filter(p => !p.port);
+        free.forEach(p => {
             const t = p.t;
             if (t.y - 16 > p.sy) p.entry = "top";
             else if (t.y + t.h + 16 < p.sy) p.entry = "bottom";
@@ -404,9 +527,9 @@ function createDiagram(app, graph) {
                 p.entry = t.y + t.h / 2 >= p.sy ? "top" : "bottom";
             }
         });
-        // Spread entry points along each target side.
+        // Spread their entry points along each target side.
         const groups = new Map();
-        plans.forEach(p => {
+        free.forEach(p => {
             const key = `${p.t.id}|${p.entry}`;
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(p);
@@ -432,14 +555,41 @@ function createDiagram(app, graph) {
                 });
             }
         });
-        return plans.map(p => {
-            const x1 = p.sx + p.dir * (14 + p.lane * 5);
+        // Port-to-port links: lanes on the target side keep parallel arrivals apart.
+        const arrivals = new Map();
+        plans.filter(p => p.port).forEach(p => {
+            const key = `${p.t.id}|${p.entry}`;
+            p.inLane = arrivals.get(key) || 0;
+            arrivals.set(key, p.inLane + 1);
+        });
+
+        const out = plans.map(p => {
             let points;
-            if (p.entry === "top" || p.entry === "bottom") points = [[p.sx, p.sy], [x1, p.sy], [x1, p.gy], [p.tx, p.gy], [p.tx, p.ty]];
-            else points = [[p.sx, p.sy], [p.mx, p.sy], [p.mx, p.ty], [p.tx, p.ty]];
+            if (p.port) {
+                const straight = (p.dir > 0 && p.entry === "left") || (p.dir < 0 && p.entry === "right");
+                if (straight) {
+                    const mx = (p.sx + p.tx) / 2 + (((p.lane + p.inLane) % 7) - 3) * 5;
+                    points = [[p.sx, p.sy], [mx, p.sy], [mx, p.ty], [p.tx, p.ty]];
+                } else {
+                    // Both on the same side: go round the outside of the two cards.
+                    const off = 16 + p.lane * 5 + p.inLane * 3;
+                    const xl = p.dir > 0 ? Math.max(p.sx, p.tx) + off : Math.min(p.sx, p.tx) - off;
+                    points = [[p.sx, p.sy], [xl, p.sy], [xl, p.ty], [p.tx, p.ty]];
+                }
+            } else {
+                const x1 = p.sx + p.dir * (14 + p.lane * 5);
+                if (p.entry === "top" || p.entry === "bottom") points = [[p.sx, p.sy], [x1, p.sy], [x1, p.gy], [p.tx, p.gy], [p.tx, p.ty]];
+                else points = [[p.sx, p.sy], [p.mx, p.sy], [p.mx, p.ty], [p.tx, p.ty]];
+            }
             points = points.filter((pt, k) => k === 0 || pt[0] !== points[k - 1][0] || pt[1] !== points[k - 1][1]);
             return { edge: p.e, points, start: [p.sx, p.sy] };
         });
+        loops.forEach(l => {
+            const x = l.box.x + l.box.w;
+            const xl = x + 14 + l.k * 5;
+            out.push({ edge: l.e, points: [[x, l.sy], [xl, l.sy], [xl, l.ty], [x, l.ty]], start: [x, l.sy] });
+        });
+        return out;
     }
 
     // ── Rendering ─────────────────────────────
@@ -533,29 +683,35 @@ function createDiagram(app, graph) {
                     t.textContent = `+${c.more} more`;
                 }
             }
-            if (c.edgeRows.length) {
-                y = c.edgeTop - 4;
-                el("line", { x1: 0, x2: box.w, y1: y, y2: y, class: "d-divider strong" }, g);
-                c.edgeRows.forEach((r, i) => {
-                    const row = el("g", { class: `d-edge-row${r.more ? " more" : ""}`, "data-row": i }, g);
-                    el("rect", { x: 1, y: r.cy - EDGE_ROW_H / 2, width: box.w - 2, height: EDGE_ROW_H, class: "d-edge-row-bg" }, row);
-                    const e = r.edges[0];
-                    el("rect", { x: 10, y: r.cy - 1, width: 8, height: 2.5, rx: 1, fill: r.more ? "var(--text-muted)" : e.color }, row);
-                    const t = el("text", { x: 24, y: r.cy + 4, class: "d-row d-edge-text" }, row);
-                    if (r.more) {
-                        t.textContent = r.text;
-                    } else {
-                        const pred = el("tspan", { class: "d-edge-pred", fill: e.color }, t);
-                        const predText = `${e.label}${e.count > 1 ? ` ×${e.count}` : ""}`;
-                        pred.textContent = fit(predText, FONT_ROW, (box.w - 40) * 0.55);
-                        const arrow = el("tspan", { class: "d-row-key" }, t);
-                        arrow.textContent = " → ";
-                        const target = el("tspan", {}, t);
-                        target.textContent = fit(labelOf(e.target), FONT_ROW, Math.max(30, box.w - 40 - textWidth(pred.textContent + " → ", FONT_ROW)));
-                    }
-                    r.el = row;
-                });
-            }
+            c.sections.forEach(sec => {
+                el("line", { x1: 0, x2: box.w, y1: sec.top, y2: sec.top, class: "d-divider strong" }, g);
+                const bar = el("g", { class: `d-sec d-sec-${sec.sec}${sec.closed ? " closed" : ""}`, "data-sec": sec.sec }, g);
+                el("rect", { x: 1, y: sec.top, width: box.w - 2, height: SEC_H, class: "d-sec-bg" }, bar);
+                const t = el("text", { x: 10, y: sec.cy + 3.5, class: "d-sec-title" }, bar);
+                t.textContent = `${sec.closed ? "▸" : "▾"} ${sec.sec === "out" ? "→" : "←"} ${sec.title}`;
+                const tip = el("title", {}, bar);
+                tip.textContent = `${sec.closed ? "Open" : "Close"} the ${SECTION_NAMES[sec.sec].toLowerCase()} of this card`;
+            });
+            c.edgeRows.forEach((r, i) => {
+                const row = el("g", { class: `d-edge-row d-edge-row-${r.sec}${r.more ? " more" : ""}`, "data-row": i }, g);
+                el("rect", { x: 1, y: r.cy - EDGE_ROW_H / 2, width: box.w - 2, height: EDGE_ROW_H, class: "d-edge-row-bg" }, row);
+                const e = r.edges[0];
+                el("rect", { x: 10, y: r.cy - 1, width: 8, height: 2.5, rx: 1, fill: r.more ? "var(--text-muted)" : e.color }, row);
+                const t = el("text", { x: 24, y: r.cy + 4, class: "d-row d-edge-text" }, row);
+                if (r.more) {
+                    t.textContent = r.text;
+                } else {
+                    const pred = el("tspan", { class: "d-edge-pred", fill: e.color }, t);
+                    const predText = `${e.label}${e.count > 1 ? ` ×${e.count}` : ""}`;
+                    pred.textContent = fit(predText, FONT_ROW, (box.w - 40) * 0.55);
+                    const arrowText = r.sec === "out" ? " → " : " ← ";
+                    const arrow = el("tspan", { class: "d-row-key" }, t);
+                    arrow.textContent = arrowText;
+                    const other = el("tspan", {}, t);
+                    other.textContent = fit(labelOf(r.other), FONT_ROW, Math.max(30, box.w - 40 - textWidth(pred.textContent + arrowText, FONT_ROW)));
+                }
+                r.el = row;
+            });
             const v = n.validation;
             if (v) {
                 el("circle", { cx: box.w - 32, cy: 12, r: 7, fill: v.ok ? "#22c55e" : "#ef4444", class: "d-badge" }, g);
@@ -655,12 +811,15 @@ function createDiagram(app, graph) {
         const edges = [...merged.values()];
         const labels = new Map(effNodes.map(n => [n.id, String(n.label || n.id)]));
         const outgoing = new Map();
+        const incoming = new Map();
         edges.forEach(e => {
             if (!outgoing.has(e.source)) outgoing.set(e.source, []);
             outgoing.get(e.source).push(e);
+            if (!incoming.has(e.target)) incoming.set(e.target, []);
+            incoming.get(e.target).push(e);
         });
         const sizes = new Map();
-        effNodes.forEach(n => sizes.set(n.id, measureCard(n, outgoing.get(n.id) || [], labels)));
+        effNodes.forEach(n => sizes.set(n.id, measureCard(n, outgoing.get(n.id) || [], incoming.get(n.id) || [], labels)));
         return { mode, view: sceneData.view, total: visible.length, effNodes, edges, clusters, clusterOf, labels, outgoing, sizes };
     }
 
@@ -933,8 +1092,64 @@ function createDiagram(app, graph) {
         });
     }
 
-    svg.addEventListener("mousedown", e => {
-        if (e.button !== 0) return;
+    // Pointer events: one code path for mouse, touch and pen. Two fingers pinch-zoom.
+    const pointers = new Map();
+    let pinch = null;
+    let lastTap = { id: null, time: 0 };
+    const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+    svg.addEventListener("pointerdown", e => {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        try { svg.setPointerCapture(e.pointerId); } catch (_) { /* pointer already gone */ }
+        if (pointers.size === 2) {
+            const [a, b] = [...pointers.values()];
+            pinch = { d: Math.max(1, distance(a, b)), k: view.k, cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, tx: view.tx, ty: view.ty };
+            drag = null;
+            container.classList.remove("panning");
+            return;
+        }
+        if (pointers.size > 2) return;
+        startDrag(e);
+        e.preventDefault();
+    });
+    svg.addEventListener("pointermove", e => {
+        if (!pointers.has(e.pointerId)) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pinch && pointers.size >= 2) {
+            const [a, b] = [...pointers.values()];
+            const k = Math.max(0.05, Math.min(4, (pinch.k * distance(a, b)) / pinch.d));
+            const rect = svg.getBoundingClientRect();
+            const mx = pinch.cx - rect.left;
+            const my = pinch.cy - rect.top;
+            const nx = (a.x + b.x) / 2 - rect.left;
+            const ny = (a.y + b.y) / 2 - rect.top;
+            view.tx = nx - ((mx - pinch.tx) * k) / pinch.k;
+            view.ty = ny - ((my - pinch.ty) * k) / pinch.k;
+            view.k = k;
+            applyView();
+            return;
+        }
+        moveDrag(e);
+    });
+    const endPointer = e => {
+        pointers.delete(e.pointerId);
+        if (pinch) {
+            if (pointers.size < 2) pinch = null;
+            drag = null;
+            return;
+        }
+        endDrag(e);
+    };
+    svg.addEventListener("pointerup", endPointer);
+    svg.addEventListener("pointercancel", e => {
+        pointers.delete(e.pointerId);
+        pinch = null;
+        drag = null;
+        container.classList.remove("panning");
+    });
+
+    function startDrag(e) {
         const pt = { x: e.clientX, y: e.clientY };
         const frameTitle = e.target.closest(".d-frame-title");
         const nodeEl = e.target.closest(".d-node");
@@ -950,9 +1165,9 @@ function createDiagram(app, graph) {
             drag = { type: "pan", start: pt, origin: { tx: view.tx, ty: view.ty }, moved: false, additive: e.ctrlKey || e.metaKey };
             container.classList.add("panning");
         }
-        e.preventDefault();
-    });
-    window.addEventListener("mousemove", e => {
+    }
+
+    function moveDrag(e) {
         if (!drag) return;
         const dx = e.clientX - drag.start.x;
         const dy = e.clientY - drag.start.y;
@@ -975,13 +1190,24 @@ function createDiagram(app, graph) {
             drag.frame.dirty = true;
         }
         redrawAfterMove();
-    });
-    window.addEventListener("mouseup", () => {
+    }
+
+    function endDrag(e) {
         if (!drag) return;
         const d = drag;
         drag = null;
         container.classList.remove("panning");
         if (d.moved) return;
+        // Double tap (touch) acts like a double click on a card.
+        if (d.type === "nodes" && e && e.pointerType !== "mouse") {
+            const now = Date.now();
+            if (lastTap.id === d.box.id && now - lastTap.time < 350) {
+                lastTap = { id: null, time: 0 };
+                openCard(d.box.id);
+                return;
+            }
+            lastTap = { id: d.box.id, time: now };
+        }
         if (d.type === "frame") {
             if (d.target.closest(".d-cluster-toggle") || d.target.closest(".d-frame-title")) {
                 collapsedClusters.add(d.frame.key);
@@ -994,6 +1220,13 @@ function createDiagram(app, graph) {
             return;
         }
         const id = d.box.id;
+        const bar = d.target.closest(".d-sec");
+        if (bar) {
+            const sec = bar.getAttribute("data-sec");
+            sectionOverride.set(`${id}|${sec}`, !sectionClosed(id, sec));
+            render({ keepView: true });
+            return;
+        }
         if (d.target.closest(".d-toggle")) {
             if (d.box.node.isGroup) collapsedClusters.delete(d.box.node.key);
             else if (collapsedBoxes.has(id)) collapsedBoxes.delete(id);
@@ -1005,21 +1238,24 @@ function createDiagram(app, graph) {
         const row = d.target.closest(".d-edge-row");
         if (row && !d.additive) {
             const r = d.box.content.edgeRows[Number(row.getAttribute("data-row"))];
-            if (r && !r.more && graph.hasNode(r.edges[0].target)) {
-                app.selectNode(r.edges[0].target, { focus: false });
-                focusOn(r.edges[0].target);
+            if (r && !r.more && graph.hasNode(r.other)) {
+                app.selectNode(r.other, { focus: false });
+                focusOn(r.other);
                 return;
             }
         }
         app.selectNode(id, { focus: false, additive: d.additive });
-    });
-    svg.addEventListener("dblclick", e => {
-        const nodeEl = e.target.closest(".d-node");
-        if (!nodeEl) return;
-        const id = nodeEl.getAttribute("data-id");
+    }
+
+    function openCard(id) {
         const box = boxes.get(id);
         if (box && box.node.isGroup) { collapsedClusters.delete(box.node.key); render({ keepView: true }); return; }
         app.revealInEditor(id);
+    }
+
+    svg.addEventListener("dblclick", e => {
+        const nodeEl = e.target.closest(".d-node");
+        if (nodeEl) openCard(nodeEl.getAttribute("data-id"));
     });
     svg.addEventListener("wheel", e => {
         e.preventDefault();
@@ -1035,9 +1271,14 @@ function createDiagram(app, graph) {
     svg.addEventListener("mouseover", e => {
         if (drag) return;
         const row = e.target.closest(".d-edge-row");
+        const bar = e.target.closest(".d-sec");
         const nodeEl = e.target.closest(".d-node");
         routes.forEach(r => r.el.classList.remove("hover"));
-        if (row && nodeEl) {
+        if (bar && nodeEl) {
+            const id = nodeEl.getAttribute("data-id");
+            const end = bar.getAttribute("data-sec") === "out" ? "source" : "target";
+            routes.forEach(r => { if (r.edge[end] === id) r.el.classList.add("hover"); });
+        } else if (row && nodeEl) {
             const box = boxes.get(nodeEl.getAttribute("data-id"));
             const r = box && box.content.edgeRows[Number(row.getAttribute("data-row"))];
             if (r) {
